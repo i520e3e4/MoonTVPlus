@@ -6,6 +6,10 @@ import type {
   D1PreparedStatement,
 } from './d1-adapter';
 import {
+  getRuntimeCacheJson,
+  setRuntimeCacheJson,
+} from './runtime-cache';
+import {
   PlaybackTelemetryInput,
   SourceHealth,
   UserSourcePreference,
@@ -109,6 +113,18 @@ function mapHealth(row: SourceHealthRow): SourceHealth {
 export async function getSourceHealthMap(
   sourceKeys?: string[]
 ): Promise<Map<string, SourceHealth>> {
+  const cached = await getRuntimeCacheJson<SourceHealth[]>(
+    'source-health-snapshot:v1'
+  );
+  if (cached) {
+    const requested = sourceKeys ? new Set(sourceKeys) : null;
+    return new Map(
+      cached
+        .filter((health) => !requested || requested.has(health.sourceKey))
+        .map((health) => [health.sourceKey, health])
+    );
+  }
+
   const database = await resolveDatabase();
   if (!database) return new Map();
 
@@ -128,9 +144,9 @@ export async function getSourceHealthMap(
         .all<SourceHealthRow>();
     }
 
-    return new Map(
-      (result.results || []).map((row) => [row.source_key, mapHealth(row)])
-    );
+    const health = (result.results || []).map(mapHealth);
+    await setRuntimeCacheJson('source-health-snapshot:v1', health, 60);
+    return new Map(health.map((item) => [item.sourceKey, item]));
   } catch (error) {
     console.warn('[SourceHealth] Failed to read health data:', error);
     return new Map();
@@ -140,6 +156,12 @@ export async function getSourceHealthMap(
 export async function getUserSourcePreferenceMap(
   username: string
 ): Promise<Map<string, UserSourcePreference>> {
+  const cacheKey = `source-preferences:v1:${encodeURIComponent(username)}`;
+  const cached = await getRuntimeCacheJson<UserSourcePreference[]>(cacheKey);
+  if (cached) {
+    return new Map(cached.map((item) => [item.sourceKey, item]));
+  }
+
   const database = await resolveDatabase();
   if (!database) return new Map();
 
@@ -156,18 +178,15 @@ export async function getUserSourcePreferenceMap(
       .bind(username)
       .all<PreferenceRow>();
 
-    return new Map(
-      (result.results || []).map((row) => [
-        row.source_key,
-        {
-          sourceKey: row.source_key,
-          preferenceScore: row.preference_score,
-          successfulPlays: row.successful_plays,
-          manualSelections: row.manual_selections,
-          lastUsedAt: row.last_used_at,
-        },
-      ])
-    );
+    const preferences = (result.results || []).map((row) => ({
+      sourceKey: row.source_key,
+      preferenceScore: row.preference_score,
+      successfulPlays: row.successful_plays,
+      manualSelections: row.manual_selections,
+      lastUsedAt: row.last_used_at,
+    }));
+    await setRuntimeCacheJson(cacheKey, preferences, 60);
+    return new Map(preferences.map((item) => [item.sourceKey, item]));
   } catch (error) {
     console.warn('[SourceHealth] Failed to read user preferences:', error);
     return new Map();
