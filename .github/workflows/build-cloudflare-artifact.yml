@@ -1,0 +1,35 @@
+name: Build Cloudflare artifact
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Build OpenNext worker
+        env:
+          BUILD_TARGET: cloudflare
+          NEXT_PUBLIC_STORAGE_TYPE: d1
+          NEXT_PUBLIC_SITE_NAME: NewMoon
+          SITE_BASE: https://newmoon.686423.xyz
+        run: pnpm run build:cloudflare
+
+      - name: Upload worker artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: moontv-open-next
+          path: .open-next
+          include-hidden-files: true
+          retention-days: 1

@@ -3,6 +3,9 @@ compatibility_date = "2024-09-23"
 compatibility_flags = ["nodejs_compat"]
 main = ".open-next/worker.js"
 minify = true
+routes = [
+  { pattern = "newmoon.686423.xyz", custom_domain = true }
+]
 
 # 静态资源配置
 # Cloudflare Workers Assets 用于服务静态文件
@@ -14,8 +17,11 @@ binding = "ASSETS"
 [[d1_databases]]
 binding = "DB"
 database_name = "moontvplus"
-database_id = "REPLACE_WITH_YOUR_D1_DATABASE_ID"
+database_id = "e2d21839-7097-4da3-a1b3-0653559b89ba"
 
 [vars]
 NODE_ENV = "production"
 BUILD_TARGET = "cloudflare"
+NEXT_PUBLIC_STORAGE_TYPE = "d1"
+NEXT_PUBLIC_SITE_NAME = "NewMoon"
+SITE_BASE = "https://newmoon.686423.xyz"
