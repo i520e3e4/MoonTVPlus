@@ -70,7 +70,11 @@ export async function GET(request: NextRequest) {
   }
 
   const config = await getConfig();
-  const apiSites = await getAvailableApiSites(authInfo.username, includeSpecialSources);
+  const [apiSites, canAccessOpenList, canAccessEmby] = await Promise.all([
+    getAvailableApiSites(authInfo.username, includeSpecialSources),
+    hasFeaturePermission(authInfo.username, 'private_library'),
+    hasFeaturePermission(authInfo.username, 'emby'),
+  ]);
   const configFingerprint = `${config.SourceConfig.length}:${
     config.ConfigSubscribtion?.LastCheck || 0
   }`;
@@ -89,11 +93,6 @@ export async function GET(request: NextRequest) {
       },
     });
   }
-  const [canAccessOpenList, canAccessEmby] = await Promise.all([
-    hasFeaturePermission(authInfo.username, 'private_library'),
-    hasFeaturePermission(authInfo.username, 'emby'),
-  ]);
-
   // 创建权重映射表
   const weightMap = new Map<string, number>();
   config.SourceConfig.forEach(source => {
@@ -253,7 +252,7 @@ export async function GET(request: NextRequest) {
       maxCandidates: 4,
       batchSize: 4,
       enoughResults: 4,
-      batchTimeoutMs: 1400,
+      batchTimeoutMs: 1000,
     },
   }).then(async ({ results, attempted }) => {
     attemptedSourceCount = attempted.length;
