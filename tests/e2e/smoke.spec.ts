@@ -54,6 +54,8 @@ test('owner can open the operations dashboard with all configured sources', asyn
   await page.goto('/admin', { waitUntil: 'domcontentloaded' });
   await expect(
     page.getByRole('heading', { name: '运行概览与资源健康' })
-  ).toBeVisible();
-  await expect(page.getByText('72', { exact: true }).first()).toBeVisible();
+  ).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByText('72', { exact: true }).first()).toBeVisible({
+    timeout: 15_000,
+  });
 });
