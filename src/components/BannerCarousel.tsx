@@ -3,6 +3,7 @@
 import {
   ChevronLeft,
   ChevronRight,
+  Info,
   Play,
   Volume2,
   VolumeX,
@@ -17,12 +18,12 @@ import {
   useState,
 } from 'react';
 
+import { getDoubanDetail } from '@/lib/douban.client';
 import {
   type TMDBItem,
   getGenreNames,
   getTMDBImageUrl,
 } from '@/lib/tmdb.client';
-import { getDoubanDetail } from '@/lib/douban.client';
 
 import ProxyImage from '@/components/ProxyImage';
 
@@ -34,9 +35,9 @@ interface BannerCarouselProps {
 type HomeBannerHeightScale = '1' | '1.5' | '2';
 
 const bannerHeightClassMap: Record<HomeBannerHeightScale, string> = {
-  '1': 'h-[200px] sm:h-[300px] md:h-[400px] lg:h-[500px]',
-  '1.5': 'h-[300px] sm:h-[450px] md:h-[600px] lg:h-[750px]',
-  '2': 'h-[400px] sm:h-[600px] md:h-[800px] lg:h-[1000px]',
+  '1': 'h-[58vw] min-h-[260px] max-h-[760px] md:h-[72vh]',
+  '1.5': 'h-[72vw] min-h-[340px] max-h-[880px] md:h-[82vh]',
+  '2': 'h-[88vw] min-h-[420px] max-h-[1000px] md:h-[92vh]',
 };
 
 const getSavedBannerHeightScale = (): HomeBannerHeightScale => {
@@ -482,7 +483,7 @@ export default function BannerCarousel({
   if (isLoading || !shouldLoad) {
     return (
       <div
-        className={`relative w-full ${bannerHeightClassMap[bannerHeightScale]} bg-gradient-to-b from-gray-100 to-gray-200 dark:from-gray-800 dark:to-gray-900 overflow-hidden flex items-center justify-center`}
+        className={`netflix-hero relative w-full ${bannerHeightClassMap[bannerHeightScale]} bg-gradient-to-b from-zinc-900 to-black overflow-hidden flex items-center justify-center`}
       >
         <Image
           src='/logo.png'
@@ -504,7 +505,7 @@ export default function BannerCarousel({
 
   return (
     <div
-      className={`relative w-full ${bannerHeightClassMap[bannerHeightScale]} overflow-hidden group`}
+      className={`netflix-hero relative w-full ${bannerHeightClassMap[bannerHeightScale]} overflow-hidden group`}
       onMouseEnter={() => setIsPaused(true)}
       onMouseLeave={() => setIsPaused(false)}
       onTouchStart={handleTouchStart}
@@ -574,18 +575,18 @@ export default function BannerCarousel({
               />
             )}
             {/* 渐变遮罩 */}
-            <div className='absolute inset-0 bg-gradient-to-r from-black/80 via-black/50 to-transparent'></div>
-            <div className='absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent'></div>
+            <div className='absolute inset-0 bg-gradient-to-r from-black via-black/65 to-transparent'></div>
+            <div className='absolute inset-0 bg-gradient-to-t from-[#141414] via-transparent to-black/25'></div>
           </div>
         ))}
       </div>
 
       {/* 内容信息 */}
-      <div className='absolute inset-0 flex items-end p-8 md:p-12 pointer-events-none'>
-        <div className='max-w-2xl space-y-4'>
+      <div className='absolute inset-0 flex items-end px-5 pb-14 sm:px-10 md:px-[4vw] md:pb-[16vh] pointer-events-none'>
+        <div className='max-w-2xl space-y-3 md:space-y-5'>
           <h2
             ref={titleRef}
-            className='text-3xl md:text-5xl font-bold text-white drop-shadow-lg'
+            className='text-3xl md:text-6xl lg:text-7xl font-black tracking-[-0.04em] text-white drop-shadow-2xl'
             style={
               isMobileView && bannerHeightScale === '1'
                 ? { fontSize: `${mobileTitleFontSize}px` }
@@ -597,17 +598,14 @@ export default function BannerCarousel({
 
           <div className='flex items-center gap-2 md:gap-3 text-sm md:text-base text-white/90 flex-wrap'>
             {currentItem.vote_average > 0 && (
-              <span className='px-2 py-1 bg-yellow-500 text-black font-semibold rounded'>
+              <span className='font-bold text-emerald-400 drop-shadow'>
                 {currentItem.vote_average.toFixed(1)}
               </span>
             )}
             {/* 显示标签：优先TX的tags，其次豆瓣的genres，最后TMDB的genre_ids */}
             {currentItem.tags && currentItem.tags.length > 0
               ? currentItem.tags.slice(0, 3).map((tag, index) => (
-                  <span
-                    key={index}
-                    className='px-2 py-1 bg-white/20 backdrop-blur-sm rounded text-sm'
-                  >
+                  <span key={index} className='text-white/80'>
                     {tag}
                   </span>
                 ))
@@ -616,19 +614,13 @@ export default function BannerCarousel({
                 currentItem.genres.length > 0
               ? /* 显示豆瓣数据源的标签 */
                 currentItem.genres.slice(0, 3).map((genre, index) => (
-                  <span
-                    key={index}
-                    className='px-2 py-1 bg-white/20 backdrop-blur-sm rounded text-sm'
-                  >
+                  <span key={index} className='text-white/80'>
                     {genre}
                   </span>
                 ))
               : /* 显示TMDB数据源的类型标签 */
                 getGenreNames(currentItem.genre_ids, 3).map((genre) => (
-                  <span
-                    key={genre}
-                    className='px-2 py-1 bg-white/20 backdrop-blur-sm rounded text-sm'
-                  >
+                  <span key={genre} className='text-white/80'>
                     {genre}
                   </span>
                 ))}
@@ -638,19 +630,33 @@ export default function BannerCarousel({
           </div>
 
           {/* PC端播放按钮 */}
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              handlePlay(currentItem.title);
-            }}
-            className='hidden md:flex items-center gap-2 px-6 py-3 bg-gray-500/30 hover:bg-gray-500/50 backdrop-blur-sm text-white font-semibold rounded-lg transition-all pointer-events-auto'
-          >
-            <Play className='w-5 h-5 fill-white' />
-            立即播放
-          </button>
+          <div className='hidden md:flex items-center gap-3'>
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                handlePlay(currentItem.title);
+              }}
+              className='flex items-center gap-2 rounded-md bg-white px-7 py-3 text-base font-bold text-black transition hover:bg-white/80 pointer-events-auto'
+            >
+              <Play className='w-6 h-6 fill-black' />
+              播放
+            </button>
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                router.push(
+                  `/search?q=${encodeURIComponent(currentItem.title)}`
+                );
+              }}
+              className='flex items-center gap-2 rounded-md bg-zinc-500/70 px-7 py-3 text-base font-bold text-white backdrop-blur-sm transition hover:bg-zinc-500/50 pointer-events-auto'
+            >
+              <Info className='w-6 h-6' />
+              更多信息
+            </button>
+          </div>
 
           {currentItem.overview && (
-            <p className='text-sm md:text-base text-white/80 line-clamp-3 drop-shadow-md'>
+            <p className='max-w-xl text-sm leading-relaxed text-white/80 line-clamp-2 drop-shadow-md md:text-lg md:line-clamp-3'>
               {currentItem.overview}
             </p>
           )}

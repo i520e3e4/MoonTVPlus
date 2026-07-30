@@ -25,7 +25,7 @@
   width: 100px;
   height: 100%;
   box-shadow: 0 0 10px rgba(59, 130, 246, 0.8), 0 0 5px rgba(59, 130, 246, 0.6);
-  opacity: 1.0;
+  opacity: 1;
   transform: rotate(3deg) translate(0px, -4px);
 }
 
@@ -52,13 +52,13 @@
 
 :root {
   --foreground-rgb: 255, 255, 255;
-  --cinema-bg: #05080f;
-  --cinema-surface: rgba(15, 23, 42, 0.78);
-  --cinema-surface-strong: rgba(15, 23, 42, 0.94);
-  --cinema-border: rgba(148, 163, 184, 0.14);
-  --cinema-accent: #22d3ee;
-  --cinema-accent-secondary: #8b5cf6;
-  --cinema-radius: 1rem;
+  --cinema-bg: #141414;
+  --cinema-surface: rgba(24, 24, 24, 0.9);
+  --cinema-surface-strong: rgba(20, 20, 20, 0.97);
+  --cinema-border: rgba(255, 255, 255, 0.12);
+  --cinema-accent: #e50914;
+  --cinema-accent-secondary: #b20710;
+  --cinema-radius: 0.5rem;
   --cinema-shadow: 0 20px 60px rgba(0, 0, 0, 0.32);
 }
 
@@ -72,10 +72,7 @@ body {
 
 body {
   color: rgb(var(--foreground-rgb));
-  background:
-    radial-gradient(circle at 12% -8%, rgba(34, 211, 238, 0.13), transparent 32rem),
-    radial-gradient(circle at 88% 5%, rgba(139, 92, 246, 0.12), transparent 28rem),
-    linear-gradient(180deg, #070b14 0%, var(--cinema-bg) 48%, #03050a 100%);
+  background: var(--cinema-bg);
   background-attachment: fixed;
 }
 
@@ -88,7 +85,7 @@ body {
 }
 
 .cinema-heading {
-  background: linear-gradient(90deg, #f8fafc, #a5f3fc 55%, #c4b5fd);
+  background: linear-gradient(90deg, #ffffff, #d4d4d8 60%, #a1a1aa);
   background-clip: text;
   color: transparent;
 }
@@ -110,16 +107,265 @@ body {
 }
 
 html:not(.dark) body {
+  background: var(--cinema-bg);
+  color: #ffffff;
+}
+
+/*
+ * NewMoon cinematic theme
+ * Inspired by modern streaming interfaces while retaining NewMoon branding.
+ */
+.netflix-shell {
+  background: #141414;
+  color: #f5f5f5;
+}
+
+.netflix-main {
+  background: #141414;
+}
+
+.netflix-home {
+  min-height: 100vh;
+  background: #141414;
+}
+
+.netflix-home-rails {
+  margin-top: -3.75rem;
+  background: linear-gradient(180deg, transparent 0, #141414 4.5rem);
+}
+
+.netflix-home-rails section {
+  margin-bottom: 1.15rem;
+}
+
+.netflix-home-rails section > div:first-child {
+  margin-bottom: 0.2rem;
+  padding-inline: 1rem;
+}
+
+.netflix-home-rails section h2 {
+  color: #f5f5f5 !important;
+  font-size: clamp(1rem, 1.35vw, 1.45rem);
+  font-weight: 700;
+  letter-spacing: -0.015em;
+}
+
+.netflix-home-rails section a,
+.netflix-home-rails section button {
+  color: #b3b3b3;
+}
+
+.netflix-home-rails section a:hover,
+.netflix-home-rails section button:hover {
+  color: #ffffff;
+}
+
+.netflix-home-rails .bg-gray-200,
+.netflix-home-rails .dark\:bg-gray-700,
+.netflix-home-rails .dark\:bg-gray-800 {
+  background-color: #2a2a2a !important;
+}
+
+.netflix-video-card {
+  transform-origin: center;
+  border-radius: 0.35rem;
+  transition: transform 220ms cubic-bezier(0.2, 0, 0.2, 1), filter 220ms ease,
+    box-shadow 220ms ease !important;
+}
+
+.netflix-video-card:hover,
+.netflix-video-card:focus-within {
+  transform: scale(1.075) !important;
+  filter: brightness(1.08);
+  box-shadow: 0 16px 38px rgba(0, 0, 0, 0.72);
+}
+
+.netflix-card-title {
+  color: #e5e5e5 !important;
+  text-align: left;
+}
+
+.netflix-poster {
+  border-radius: 0.35rem !important;
+  background: #242424;
+  box-shadow: 0 2px 14px rgba(0, 0, 0, 0.28);
+}
+
+.netflix-poster::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: inherit;
+  pointer-events: none;
+  z-index: 5;
+}
+
+.netflix-hero {
+  isolation: isolate;
+  background: #080808;
+}
+
+.netflix-hero::after {
+  content: '';
+  position: absolute;
+  inset: auto 0 0;
+  height: 8rem;
+  background: linear-gradient(transparent, #141414);
+  pointer-events: none;
+  z-index: 1;
+}
+
+.netflix-desktop-nav {
+  width: 100% !important;
+  height: 4.25rem !important;
+  border: 0 !important;
+  border-bottom: 1px solid transparent !important;
   background: linear-gradient(
     180deg,
-    #e6f3fb 0%,
-    #eaf3f7 18%,
-    #f7f7f3 38%,
-    #e9ecef 60%,
-    #dbe3ea 80%,
-    #d3dde6 100%
-  );
-  background-attachment: fixed;
+    rgba(0, 0, 0, 0.92),
+    rgba(0, 0, 0, 0)
+  ) !important;
+  box-shadow: none !important;
+  backdrop-filter: none !important;
+  transition: background-color 200ms ease, border-color 200ms ease !important;
+  z-index: 800 !important;
+}
+
+.netflix-nav-inner {
+  width: 100%;
+  height: 4.25rem !important;
+  padding: 0 max(11.5rem, 4vw) 0 4vw;
+  flex-direction: row !important;
+  align-items: center;
+  gap: 1.4rem;
+}
+
+.netflix-logo-zone {
+  width: auto;
+  min-width: max-content;
+  height: 4.25rem !important;
+}
+
+.netflix-logo-zone > div {
+  position: static !important;
+  opacity: 1 !important;
+}
+
+.netflix-logo-zone > button {
+  display: none !important;
+}
+
+.netflix-wordmark {
+  height: 4.25rem !important;
+}
+
+.netflix-wordmark span {
+  font-size: 1.65rem;
+  text-shadow: 0 2px 18px rgba(229, 9, 20, 0.25);
+}
+
+.netflix-primary-nav,
+.netflix-category-nav {
+  display: flex;
+  flex: 0 0 auto !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  overflow: visible !important;
+}
+
+.netflix-primary-nav,
+.netflix-category-nav > div {
+  align-items: center;
+  gap: 0.15rem;
+}
+
+.netflix-category-nav > div {
+  display: flex;
+}
+
+.netflix-primary-nav a,
+.netflix-category-nav a {
+  min-height: 2.5rem !important;
+  width: auto !important;
+  margin: 0 !important;
+  padding: 0.55rem 0.7rem !important;
+  gap: 0.4rem !important;
+  border-radius: 0.25rem !important;
+  color: #d4d4d4 !important;
+  background: transparent !important;
+  font-size: 0.875rem !important;
+  font-weight: 500 !important;
+}
+
+.netflix-primary-nav a:hover,
+.netflix-category-nav a:hover,
+.netflix-primary-nav a[data-active='true'],
+.netflix-category-nav a[data-active='true'] {
+  color: #ffffff !important;
+}
+
+.netflix-primary-nav a[data-active='true'],
+.netflix-category-nav a[data-active='true'] {
+  font-weight: 700 !important;
+}
+
+.netflix-primary-nav svg,
+.netflix-category-nav svg {
+  color: currentColor !important;
+}
+
+.netflix-sidebar-offset {
+  width: 0 !important;
+}
+
+.netflix-mobile-header,
+.netflix-mobile-nav {
+  color-scheme: dark;
+}
+
+@media (min-width: 768px) {
+  .netflix-main {
+    padding-top: 0;
+  }
+}
+
+@media (max-width: 1100px) {
+  .netflix-category-nav a {
+    padding-inline: 0.45rem !important;
+  }
+
+  .netflix-category-nav a > div {
+    display: none;
+  }
+}
+
+@media (max-width: 767px) {
+  .netflix-home-rails {
+    margin-top: -1.5rem;
+    padding-inline: 0.25rem;
+    background: linear-gradient(180deg, transparent 0, #141414 2rem);
+  }
+
+  .netflix-home-rails section {
+    margin-bottom: 0.35rem;
+  }
+
+  .netflix-home-rails section > div:first-child {
+    padding-inline: 0.75rem;
+  }
+
+  .netflix-video-card:hover,
+  .netflix-video-card:focus-within {
+    transform: none !important;
+    box-shadow: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .netflix-video-card {
+    transition: none !important;
+  }
 }
 
 /* 自定义滚动条样式 */
@@ -261,7 +507,8 @@ div[data-media-provider] video {
     transform: scale(1);
     opacity: 0.6;
   }
-  75%, 100% {
+  75%,
+  100% {
     transform: scale(2);
     opacity: 0;
   }
@@ -269,7 +516,8 @@ div[data-media-provider] video {
 
 /* 水波纹缩放动画 - 第二层 (慢速脉冲) */
 @keyframes pulse-scale {
-  0%, 100% {
+  0%,
+  100% {
     transform: scale(1);
     opacity: 0.4;
   }
@@ -281,7 +529,8 @@ div[data-media-provider] video {
 
 /* 主体徽章缩放动画 */
 @keyframes badge-scale {
-  0%, 100% {
+  0%,
+  100% {
     transform: scale(1);
   }
   50% {
@@ -290,7 +539,8 @@ div[data-media-provider] video {
 }
 
 @keyframes reader-book-flip {
-  0%, 100% {
+  0%,
+  100% {
     transform: perspective(120px) rotateY(0deg) translateY(0);
   }
   30% {
@@ -314,7 +564,6 @@ div[data-media-provider] video {
   color: #38bdf8;
 }
 
-
 /* TV 端遥控器焦点：深色选中 + 放大，而不是细边框 */
 .tv-focusable {
   position: relative;
@@ -324,12 +573,8 @@ div[data-media-provider] video {
   scroll-margin-right: 48px;
   transform-origin: center;
   scale: 1;
-  transition:
-    scale 180ms ease,
-    background-color 180ms ease,
-    color 180ms ease,
-    box-shadow 180ms ease,
-    opacity 180ms ease;
+  transition: scale 180ms ease, background-color 180ms ease, color 180ms ease,
+    box-shadow 180ms ease, opacity 180ms ease;
 }
 
 .tv-focusable:focus,
@@ -339,9 +584,7 @@ div[data-media-provider] video {
   scale: 1.055;
   background-color: rgba(15, 23, 42, 0.96) !important;
   color: #ffffff !important;
-  box-shadow:
-    0 18px 44px rgba(0, 0, 0, 0.68),
-    0 0 26px rgba(225, 29, 72, 0.38) !important;
+  box-shadow: 0 18px 44px rgba(0, 0, 0, 0.68), 0 0 26px rgba(225, 29, 72, 0.38) !important;
   z-index: 30;
 }
 
@@ -360,7 +603,11 @@ div[data-media-provider] video {
   position: absolute;
   inset: -3px;
   border-radius: inherit;
-  background: linear-gradient(135deg, rgba(255,255,255,0.22), rgba(225,29,72,0.28));
+  background: linear-gradient(
+    135deg,
+    rgba(255, 255, 255, 0.22),
+    rgba(225, 29, 72, 0.28)
+  );
   opacity: 0.45;
   pointer-events: none;
 }

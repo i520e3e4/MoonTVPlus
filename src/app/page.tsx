@@ -881,98 +881,100 @@ function HomeClient() {
 
   return (
     <PageLayout>
-      <FireworksCanvas />
-      {/* TMDB 热门轮播图 */}
-      {homeBannerEnabled && (
-        <div className='w-full mb-4'>
-          <BannerCarousel delayLoad={true} />
-        </div>
-      )}
+      <div className='netflix-home'>
+        <FireworksCanvas />
+        {/* TMDB 热门轮播图 */}
+        {homeBannerEnabled && (
+          <div className='w-full mb-4'>
+            <BannerCarousel delayLoad={true} />
+          </div>
+        )}
 
-      <div className='px-2 sm:px-10 pb-4 sm:pb-8 overflow-visible'>
-        <div className='max-w-[95%] mx-auto'>
-          {/* 首页内容 */}
-          <>
-            {/* 源站寻片和AI问片入口 */}
-            <div
-              className={`flex items-center justify-end gap-2 mb-4 ${
-                homeBannerEnabled ? '' : 'mt-[30px]'
-              }`}
-            >
-              <button
-                onClick={handleDirectPlay}
-                className='p-1.5 rounded-lg text-blue-500 hover:text-blue-600 transition-colors'
-                title='直链播放'
+        <div className='netflix-home-rails relative z-10 px-2 sm:px-[4vw] pb-4 sm:pb-8 overflow-visible'>
+          <div className='max-w-none mx-auto'>
+            {/* 首页内容 */}
+            <>
+              {/* 源站寻片和AI问片入口 */}
+              <div
+                className={`flex items-center justify-end gap-2 mb-4 ${
+                  homeBannerEnabled ? '' : 'mt-[30px]'
+                }`}
               >
-                <LinkIcon size={18} />
-              </button>
-
-              {musicEnabled && (
-                <Link href='/music' prefetch={false}>
-                  <button
-                    className='p-1.5 rounded-lg text-green-500 hover:text-green-600 transition-colors'
-                    title='音乐视听'
-                  >
-                    <Music size={18} />
-                  </button>
-                </Link>
-              )}
-
-              {mangaEnabled && (
-                <Link href='/manga' prefetch={false}>
-                  <button
-                    className='p-1.5 rounded-lg text-emerald-500 hover:text-emerald-600 transition-colors'
-                    title='漫画展馆'
-                  >
-                    <BookOpen size={18} />
-                  </button>
-                </Link>
-              )}
-
-              {booksEnabled && (
-                <Link href='/books' prefetch={false}>
-                  <button
-                    className='p-1.5 rounded-lg text-amber-500 hover:text-amber-600 transition-colors'
-                    title='电子书馆'
-                  >
-                    <BookMarked size={18} />
-                  </button>
-                </Link>
-              )}
-
-              {/* 源站寻片入口 */}
-              {sourceSearchEnabled && (
-                <Link href='/source-search'>
-                  <button
-                    className='p-2 rounded-lg text-blue-500 hover:text-blue-600 transition-colors'
-                    title='源站寻片'
-                  >
-                    <ListVideo size={20} />
-                  </button>
-                </Link>
-              )}
-
-              {/* AI问片入口 */}
-              {aiEnabled && (
                 <button
-                  onClick={() => setShowAIChat(true)}
-                  className='p-2 rounded-lg text-purple-500 hover:text-purple-600 transition-colors'
-                  title='AI问片'
+                  onClick={handleDirectPlay}
+                  className='p-1.5 rounded-lg text-blue-500 hover:text-blue-600 transition-colors'
+                  title='直链播放'
                 >
-                  <Bot size={20} />
+                  <LinkIcon size={18} />
                 </button>
-              )}
-            </div>
 
-            {/* 继续观看 */}
-            {homeContinueWatchingEnabled && <ContinueWatching />}
+                {musicEnabled && (
+                  <Link href='/music' prefetch={false}>
+                    <button
+                      className='p-1.5 rounded-lg text-green-500 hover:text-green-600 transition-colors'
+                      title='音乐视听'
+                    >
+                      <Music size={18} />
+                    </button>
+                  </Link>
+                )}
 
-            {/* 根据配置动态渲染首页模块 */}
-            {homeModules
-              .filter((module) => module.enabled)
-              .sort((a, b) => a.order - b.order)
-              .map((module) => renderModule(module.id))}
-          </>
+                {mangaEnabled && (
+                  <Link href='/manga' prefetch={false}>
+                    <button
+                      className='p-1.5 rounded-lg text-emerald-500 hover:text-emerald-600 transition-colors'
+                      title='漫画展馆'
+                    >
+                      <BookOpen size={18} />
+                    </button>
+                  </Link>
+                )}
+
+                {booksEnabled && (
+                  <Link href='/books' prefetch={false}>
+                    <button
+                      className='p-1.5 rounded-lg text-amber-500 hover:text-amber-600 transition-colors'
+                      title='电子书馆'
+                    >
+                      <BookMarked size={18} />
+                    </button>
+                  </Link>
+                )}
+
+                {/* 源站寻片入口 */}
+                {sourceSearchEnabled && (
+                  <Link href='/source-search'>
+                    <button
+                      className='p-2 rounded-lg text-blue-500 hover:text-blue-600 transition-colors'
+                      title='源站寻片'
+                    >
+                      <ListVideo size={20} />
+                    </button>
+                  </Link>
+                )}
+
+                {/* AI问片入口 */}
+                {aiEnabled && (
+                  <button
+                    onClick={() => setShowAIChat(true)}
+                    className='p-2 rounded-lg text-purple-500 hover:text-purple-600 transition-colors'
+                    title='AI问片'
+                  >
+                    <Bot size={20} />
+                  </button>
+                )}
+              </div>
+
+              {/* 继续观看 */}
+              {homeContinueWatchingEnabled && <ContinueWatching />}
+
+              {/* 根据配置动态渲染首页模块 */}
+              {homeModules
+                .filter((module) => module.enabled)
+                .sort((a, b) => a.order - b.order)
+                .map((module) => renderModule(module.id))}
+            </>
+          </div>
         </div>
       </div>
 

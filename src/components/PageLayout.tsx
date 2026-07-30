@@ -7,7 +7,6 @@ import { BackButton } from './BackButton';
 import MobileBottomNav from './MobileBottomNav';
 import MobileHeader from './MobileHeader';
 import Sidebar from './Sidebar';
-import { ThemeToggle } from './ThemeToggle';
 import { UpdateNotification } from './UpdateNotification';
 import { UserMenu } from './UserMenu';
 import { VersionCheckProvider } from './VersionCheckProvider';
@@ -18,7 +17,11 @@ interface PageLayoutProps {
   hideNavigation?: boolean; // 控制是否隐藏顶部和底部导航栏
 }
 
-const PageLayout = ({ children, activePath = '/', hideNavigation = false }: PageLayoutProps) => {
+const PageLayout = ({
+  children,
+  activePath = '/',
+  hideNavigation = false,
+}: PageLayoutProps) => {
   const router = useRouter();
   const [backgroundImage, setBackgroundImage] = useState('');
   const shouldShowSharedBackground = !hideNavigation && activePath !== '/play';
@@ -62,7 +65,7 @@ const PageLayout = ({ children, activePath = '/', hideNavigation = false }: Page
 
   return (
     <VersionCheckProvider>
-      <div className='relative w-full min-h-screen overflow-hidden'>
+      <div className='netflix-shell relative w-full min-h-screen overflow-hidden'>
         {shouldShowSharedBackground && backgroundImage && (
           <>
             <div
@@ -75,7 +78,9 @@ const PageLayout = ({ children, activePath = '/', hideNavigation = false }: Page
 
         {/* 移动端头部 */}
         {!hideNavigation && (
-          <MobileHeader showBackButton={['/play', '/live'].includes(activePath)} />
+          <MobileHeader
+            showBackButton={['/play', '/live'].includes(activePath)}
+          />
         )}
 
         {/* 主要布局容器 */}
@@ -98,8 +103,7 @@ const PageLayout = ({ children, activePath = '/', hideNavigation = false }: Page
 
             {/* 桌面端顶部按钮 */}
             {!hideNavigation && (
-              <div className='absolute top-2 right-4 z-20 hidden md:flex items-center gap-2'>
-                <ThemeToggle />
+              <div className='fixed top-2 right-4 z-[900] hidden md:flex items-center gap-2'>
                 <UserMenu />
                 <UpdateNotification />
               </div>
@@ -107,7 +111,7 @@ const PageLayout = ({ children, activePath = '/', hideNavigation = false }: Page
 
             {/* 主内容 */}
             <main
-              className='flex-1 md:min-h-0 mb-14 md:mb-0 md:mt-0 mt-[calc(3rem+env(safe-area-inset-top))]'
+              className='netflix-main flex-1 md:min-h-0 mb-14 md:mb-0 md:mt-0 mt-[calc(3rem+env(safe-area-inset-top))]'
               style={{
                 paddingBottom: 'calc(3.5rem + env(safe-area-inset-bottom))',
               }}

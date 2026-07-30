@@ -45,6 +45,7 @@ wrangler.toml.bak
 .deployment-backups/
 .deployment-artifacts/
 .open-next-windows-failed/
+.visual-baseline/
 .wrangler-login*.log
 .codex-*.log
 

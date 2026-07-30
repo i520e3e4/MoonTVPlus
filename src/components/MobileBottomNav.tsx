@@ -2,7 +2,19 @@
 
 'use client';
 
-import { Blend, Cat, Clover, Container, Film, Globe, Home, Star, Tv, TvMinimalPlay, Users } from 'lucide-react';
+import {
+  Blend,
+  Cat,
+  Clover,
+  Container,
+  Film,
+  Globe,
+  Home,
+  Star,
+  Tv,
+  TvMinimalPlay,
+  Users,
+} from 'lucide-react';
 import Link from 'next/link';
 import { usePathname, useSearchParams } from 'next/navigation';
 import { useEffect, useState } from 'react';
@@ -54,11 +66,11 @@ const MobileBottomNav = ({ activePath }: MobileBottomNavProps) => {
       label: '综艺',
       href: '/douban?type=show',
     },
-      {
-        icon: TvMinimalPlay,
-        label: '电视直播',
-        href: '/live',
-      },
+    {
+      icon: TvMinimalPlay,
+      label: '电视直播',
+      href: '/live',
+    },
   ]);
 
   useEffect(() => {
@@ -161,7 +173,7 @@ const MobileBottomNav = ({ activePath }: MobileBottomNavProps) => {
 
   return (
     <nav
-      className='md:hidden fixed left-0 right-0 z-[600] bg-white/90 backdrop-blur-xl border-t border-gray-200/50 overflow-hidden dark:bg-gray-900/80 dark:border-gray-700/50'
+      className='netflix-mobile-nav md:hidden fixed left-0 right-0 z-[600] bg-black/95 backdrop-blur-xl border-t border-white/10 overflow-hidden'
       style={{
         /* 紧贴视口底部，同时在内部留出安全区高度 */
         bottom: 0,
@@ -184,18 +196,11 @@ const MobileBottomNav = ({ activePath }: MobileBottomNavProps) => {
                 className='flex flex-col items-center justify-center w-full h-14 gap-1 text-xs'
               >
                 <item.icon
-                  className={`h-6 w-6 ${active
-                    ? 'text-green-600 dark:text-green-400'
-                    : 'text-gray-500 dark:text-gray-400'
-                    }`}
+                  className={`h-6 w-6 ${
+                    active ? 'text-red-500' : 'text-zinc-500'
+                  }`}
                 />
-                <span
-                  className={
-                    active
-                      ? 'text-green-600 dark:text-green-400'
-                      : 'text-gray-600 dark:text-gray-300'
-                  }
-                >
+                <span className={active ? 'text-white' : 'text-zinc-400'}>
                   {item.label}
                 </span>
               </Link>

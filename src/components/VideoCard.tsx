@@ -21,10 +21,10 @@ import React, {
   useEffect,
   useImperativeHandle,
   useMemo,
-  useRef,
   useState,
 } from 'react';
 
+import { getBangumiSubjectUrl } from '@/lib/bangumi.client';
 import {
   deleteFavorite,
   deletePlayRecord,
@@ -33,8 +33,8 @@ import {
   saveFavorite,
   subscribeToDataUpdates,
 } from '@/lib/db.client';
-import { getBangumiSubjectUrl } from '@/lib/bangumi.client';
 import { isNetdiskSource } from '@/lib/netdisk/source';
+import type { TMDBVideoItem } from '@/lib/tmdb.client';
 import {
   base58Decode,
   clearBangumiImageFallbackCacheIfFailed,
@@ -53,7 +53,6 @@ import { ImagePlaceholder } from '@/components/ImagePlaceholder';
 import ImageViewer from '@/components/ImageViewer';
 import MobileActionSheet from '@/components/MobileActionSheet';
 import TrailerPickerDialog from '@/components/TrailerPickerDialog';
-import type { TMDBVideoItem } from '@/lib/tmdb.client';
 
 export interface VideoCardProps {
   id?: string;
@@ -430,7 +429,9 @@ const VideoCard = forwardRef<VideoCardHandle, VideoCardProps>(
           isAggregate ? '&prefer=true' : ''
         }${
           actualQuery ? `&stitle=${encodeURIComponent(actualQuery.trim())}` : ''
-        }${actualSearchType ? `&stype=${actualSearchType}` : ''}${isDuanju ? '&duanju=1' : ''}`;
+        }${actualSearchType ? `&stype=${actualSearchType}` : ''}${
+          isDuanju ? '&duanju=1' : ''
+        }`;
 
         if (isCurrentlyOnPlayPage) {
           // 在 play 页面内，添加 _reload 参数强制刷新
@@ -493,7 +494,9 @@ const VideoCard = forwardRef<VideoCardHandle, VideoCardProps>(
           isAggregate ? '&prefer=true' : ''
         }${
           actualQuery ? `&stitle=${encodeURIComponent(actualQuery.trim())}` : ''
-        }${actualSearchType ? `&stype=${actualSearchType}` : ''}${isDuanju ? '&duanju=1' : ''}`;
+        }${actualSearchType ? `&stype=${actualSearchType}` : ''}${
+          isDuanju ? '&duanju=1' : ''
+        }`;
         window.open(url, '_blank');
       }
     }, [
@@ -662,7 +665,6 @@ const VideoCard = forwardRef<VideoCardHandle, VideoCardProps>(
       if (daysUntilRelease === 0) return '今日上映';
       return '已上映';
     }, [isUpcoming, daysUntilRelease]);
-
 
     const openTrailerPicker = useCallback(async () => {
       if (!actualTitle) return;
@@ -898,7 +900,7 @@ const VideoCard = forwardRef<VideoCardHandle, VideoCardProps>(
     return (
       <>
         <div
-          className={`group relative w-full rounded-lg bg-transparent transition-all duration-300 ease-in-out hover:scale-[1.05] hover:z-[500] ${
+          className={`netflix-video-card group relative w-full rounded-lg bg-transparent transition-all duration-300 ease-in-out hover:scale-[1.05] hover:z-[500] ${
             isUpcoming ? 'cursor-default' : 'cursor-pointer'
           } ${showUpcomingInfo ? 'scale-[1.05] z-[500]' : ''}`}
           onClick={handleClick}
@@ -944,7 +946,7 @@ const VideoCard = forwardRef<VideoCardHandle, VideoCardProps>(
         >
           {/* 海报容器 */}
           <div
-            className={`relative overflow-hidden rounded-lg ${
+            className={`netflix-poster relative overflow-hidden rounded-lg ${
               origin === 'live'
                 ? 'ring-1 ring-gray-300/80 dark:ring-gray-600/80'
                 : ''
@@ -1933,7 +1935,7 @@ const VideoCard = forwardRef<VideoCardHandle, VideoCardProps>(
                   }
                 >
                   <span
-                    className='block text-sm font-semibold truncate text-gray-900 dark:text-gray-100 transition-colors duration-300 ease-in-out group-hover:text-green-600 dark:group-hover:text-green-400 peer'
+                    className='netflix-card-title block text-sm font-semibold truncate text-gray-900 dark:text-gray-100 transition-colors duration-300 ease-in-out group-hover:text-red-500 dark:group-hover:text-red-400 peer'
                     style={
                       {
                         WebkitUserSelect: 'none',
@@ -2004,7 +2006,6 @@ const VideoCard = forwardRef<VideoCardHandle, VideoCardProps>(
             setShowImageViewer(true);
           }}
         />
-
 
         <TrailerPickerDialog
           isOpen={showTrailerPicker}
