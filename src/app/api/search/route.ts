@@ -74,7 +74,7 @@ export async function GET(request: NextRequest) {
   const configFingerprint = `${config.SourceConfig.length}:${
     config.ConfigSubscribtion?.LastCheck || 0
   }`;
-  const cacheKey = `search:v2:${encodeURIComponent(
+  const cacheKey = `search:v3:${encodeURIComponent(
     authInfo.username
   )}:${encodeURIComponent(query.trim().toLowerCase())}:${
     includeSpecialSources ? 1 : 0
@@ -251,8 +251,8 @@ export async function GET(request: NextRequest) {
     options: {
       maxCandidates: 12,
       batchSize: 4,
-      enoughResults: 12,
-      batchTimeoutMs: 1600,
+      enoughResults: 4,
+      batchTimeoutMs: 1400,
     },
   }).then(async ({ results, attempted }) => {
     attemptedSourceCount = attempted.length;
