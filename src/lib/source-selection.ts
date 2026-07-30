@@ -194,46 +194,59 @@ export async function progressiveSearch<T>(params: {
   for (let start = 0; start < candidates.length; start += batchSize) {
     const batch = candidates.slice(start, start + batchSize);
     attempted.push(...batch);
-    const batchResults = await Promise.all(
-      batch.map(async (source) => {
-        const controller = new AbortController();
+    const controllers = batch.map(() => new AbortController());
+    const pending = new Map(
+      batch.map((source, index) => {
+        const controller = controllers[index];
         const startedAt = Date.now();
-        let timedOut = false;
-        let timeoutId: ReturnType<typeof setTimeout> | null = null;
+        const task = (async () => {
+          let timedOut = false;
+          let timeoutId: ReturnType<typeof setTimeout> | null = null;
 
-        try {
-          const sourceResults = await Promise.race([
-            search(source, controller.signal),
-            new Promise<T[]>((_, reject) => {
-              timeoutId = setTimeout(() => {
-                timedOut = true;
-                controller.abort();
-                reject(new Error('source-search-timeout'));
-              }, batchTimeoutMs);
-            }),
-          ]);
-          await onObservation?.(source, {
-            success: true,
-            timeout: false,
-            latencyMs: Date.now() - startedAt,
-            resultCount: sourceResults.length,
-          });
-          return sourceResults;
-        } catch {
-          await onObservation?.(source, {
-            success: false,
-            timeout: timedOut,
-            latencyMs: Date.now() - startedAt,
-            resultCount: 0,
-          });
-          return [];
-        } finally {
-          if (timeoutId) clearTimeout(timeoutId);
-        }
+          try {
+            const sourceResults = await Promise.race([
+              search(source, controller.signal),
+              new Promise<T[]>((_, reject) => {
+                timeoutId = setTimeout(() => {
+                  timedOut = true;
+                  controller.abort();
+                  reject(new Error('source-search-timeout'));
+                }, batchTimeoutMs);
+              }),
+            ]);
+            await onObservation?.(source, {
+              success: true,
+              timeout: false,
+              latencyMs: Date.now() - startedAt,
+              resultCount: sourceResults.length,
+            });
+            return { index, sourceResults };
+          } catch {
+            await onObservation?.(source, {
+              success: false,
+              timeout: timedOut,
+              latencyMs: Date.now() - startedAt,
+              resultCount: 0,
+            });
+            return { index, sourceResults: [] as T[] };
+          } finally {
+            if (timeoutId) clearTimeout(timeoutId);
+          }
+        })();
+        return [index, task] as const;
       })
     );
 
-    results.push(...batchResults.flat());
+    // Return the first useful wave instead of waiting for every slow source.
+    // Remaining requests are aborted once enough results have arrived.
+    while (pending.size > 0 && results.length < enoughResults) {
+      const { index, sourceResults } = await Promise.race(pending.values());
+      pending.delete(index);
+      results.push(...sourceResults);
+    }
+    if (results.length >= enoughResults) {
+      controllers.forEach((controller) => controller.abort());
+    }
     if (results.length >= enoughResults) break;
   }
 

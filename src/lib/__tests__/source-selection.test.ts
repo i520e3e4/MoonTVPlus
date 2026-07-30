@@ -89,9 +89,35 @@ describe('source selection', () => {
       },
     });
 
-    expect(results).toHaveLength(8);
+    expect(results).toHaveLength(6);
     expect(attempted).toHaveLength(4);
     expect(searched).toHaveLength(4);
+  });
+
+  it('returns a useful wave without waiting for slower sources', async () => {
+    const sources = rankSources({
+      sites: createSites(4),
+      maxCandidates: 4,
+    });
+    const startedAt = Date.now();
+    const { results } = await progressiveSearch({
+      sources,
+      search: async (source) => {
+        if (source.site.key === sources[0].site.key) {
+          return Array.from({ length: 6 }, () => ({ source: source.site.key }));
+        }
+        await new Promise((resolve) => setTimeout(resolve, 250));
+        return [];
+      },
+      options: {
+        batchSize: 4,
+        enoughResults: 4,
+        batchTimeoutMs: 1000,
+      },
+    });
+
+    expect(results).toHaveLength(6);
+    expect(Date.now() - startedAt).toBeLessThan(200);
   });
 
   it('enforces the timeout even when a downstream client ignores abort', async () => {
