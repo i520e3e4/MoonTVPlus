@@ -12,6 +12,15 @@ export interface D1Database {
   prepare(query: string): D1PreparedStatement;
   batch(statements: any[]): Promise<D1Result[]>;
   exec(query: string): Promise<D1Result>;
+  withSession?(
+    constraint?: 'first-primary' | 'first-unconstrained' | string
+  ): D1DatabaseSession;
+}
+
+export interface D1DatabaseSession {
+  prepare(query: string): D1PreparedStatement;
+  batch(statements: any[]): Promise<D1Result[]>;
+  getBookmark?(): string | null;
 }
 
 // D1 PreparedStatement 接口
@@ -40,7 +49,15 @@ export interface DatabaseAdapter {
  * Cloudflare D1 适配器（生产环境）
  */
 export class CloudflareD1Adapter implements DatabaseAdapter {
-  constructor(private db: D1Database) {}
+  private db: D1Database | D1DatabaseSession;
+
+  constructor(database: D1Database) {
+    // Sessions API is safe with or without read replication. Within the
+    // adapter, writes advance the session bookmark so following reads remain
+    // sequentially consistent while eligible reads can use nearby replicas.
+    this.db =
+      database.withSession?.('first-unconstrained') || database;
+  }
 
   prepare(query: string): D1PreparedStatement {
     return this.db.prepare(query);

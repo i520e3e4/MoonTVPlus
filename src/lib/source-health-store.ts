@@ -1,6 +1,10 @@
 /* eslint-disable no-console */
 
-import type { D1Database, D1PreparedStatement } from './d1-adapter';
+import type {
+  D1Database,
+  D1DatabaseSession,
+  D1PreparedStatement,
+} from './d1-adapter';
 import {
   PlaybackTelemetryInput,
   SourceHealth,
@@ -44,9 +48,13 @@ interface PreferenceRow {
   last_used_at: number | null;
 }
 
-let databasePromise: Promise<D1Database | null> | null = null;
+let databasePromise: Promise<
+  D1Database | D1DatabaseSession | null
+> | null = null;
 
-async function resolveDatabase(): Promise<D1Database | null> {
+async function resolveDatabase(): Promise<
+  D1Database | D1DatabaseSession | null
+> {
   if (databasePromise) return databasePromise;
 
   databasePromise = (async () => {
@@ -60,9 +68,10 @@ async function resolveDatabase(): Promise<D1Database | null> {
     try {
       const { getCloudflareContext } = await import('@opennextjs/cloudflare');
       const context = await getCloudflareContext({ async: true });
-      return ((context.env as Record<string, unknown>).DB as
+      const database = ((context.env as Record<string, unknown>).DB as
         | D1Database
         | undefined) || null;
+      return database?.withSession?.('first-unconstrained') || database;
     } catch (error) {
       console.warn('[SourceHealth] D1 binding unavailable:', error);
       return null;

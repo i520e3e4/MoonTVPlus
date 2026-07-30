@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getAuthInfoFromCookie } from '@/lib/auth';
 import { getAvailableApiSites, getCacheTime, getConfig } from '@/lib/config';
 import { getDetailFromApi } from '@/lib/downstream';
+import { checkRateLimit, getClientIp } from '@/lib/rate-limit';
 import {
   executeSavedSourceScript,
   normalizeScriptDetailResult,
@@ -16,6 +17,20 @@ export async function GET(request: NextRequest) {
   const authInfo = getAuthInfoFromCookie(request);
   if (!authInfo || !authInfo.username) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+  const rateLimit = checkRateLimit({
+    key: `detail:${authInfo.username}:${getClientIp(request)}`,
+    limit: 90,
+    windowMs: 60_000,
+  });
+  if (!rateLimit.allowed) {
+    return NextResponse.json(
+      { error: '详情请求过于频繁' },
+      {
+        status: 429,
+        headers: { 'Retry-After': String(rateLimit.retryAfterSeconds) },
+      }
+    );
   }
 
   const { searchParams } = new URL(request.url);

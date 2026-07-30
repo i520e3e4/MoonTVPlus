@@ -7,6 +7,7 @@ import { getAvailableApiSites, getCacheTime, getConfig } from '@/lib/config';
 import { getDetailFromApiV2 } from '@/lib/downstream';
 import { getProxyToken } from '@/lib/emby-token';
 import { hasFeaturePermission } from '@/lib/permissions';
+import { checkRateLimit, getClientIp } from '@/lib/rate-limit';
 import {
   createBaiduNetdiskSession,
   getBaiduNetdiskSession,
@@ -176,6 +177,20 @@ export async function GET(request: NextRequest) {
   const authInfo = getAuthInfoFromCookie(request);
   if (!authInfo || !authInfo.username) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+  const rateLimit = checkRateLimit({
+    key: `source-detail:${authInfo.username}:${getClientIp(request)}`,
+    limit: 90,
+    windowMs: 60_000,
+  });
+  if (!rateLimit.allowed) {
+    return NextResponse.json(
+      { error: '详情请求过于频繁' },
+      {
+        status: 429,
+        headers: { 'Retry-After': String(rateLimit.retryAfterSeconds) },
+      }
+    );
   }
 
   const { searchParams } = new URL(request.url);
