@@ -72,12 +72,14 @@ import { createPortal } from 'react-dom';
 import { AdminConfig, AdminConfigResult } from '@/lib/admin.types';
 import { getAuthInfoFromBrowserCookie } from '@/lib/auth';
 import { BookSource } from '@/lib/book.types';
+import { AdFilterRule, DEFAULT_AD_FILTER_RULE } from '@/lib/m3u8-ad-filter';
 import {
   ALL_FEATURE_PERMISSION_KEYS,
   FEATURE_PERMISSION_OPTIONS,
 } from '@/lib/feature-permissions';
 
 import AnimeSubscriptionComponent from '@/components/AnimeSubscriptionComponent';
+import OperationsOverview from '@/components/admin/OperationsOverview';
 import CorrectDialog from '@/components/CorrectDialog';
 import DataMigration from '@/components/DataMigration';
 import PageLayout from '@/components/PageLayout';
@@ -13102,7 +13104,7 @@ const RegistrationConfigComponent = ({
   );
 };
 
-// 自定义去广告配置组件
+// 结构化去广告配置组件。旧 JavaScript 仅保留用于审计，不再执行。
 const CustomAdFilterConfig = ({
   config,
   refreshConfig,
@@ -13112,132 +13114,47 @@ const CustomAdFilterConfig = ({
 }) => {
   const { alertModal, showAlert, hideAlert } = useAlertModal();
   const { isLoading, withLoading } = useLoadingState();
-  const [adFilterCode, setAdFilterCode] = useState('');
-
-  // 默认去广告代码
-  const defaultAdFilterCode = `function filterAdsFromM3U8(type: string, m3u8Content: string): string {
-  if (!m3u8Content) return '';
-
-  // 广告关键字列表
-  const adKeywords = [
-    'sponsor',
-    '/ad/',
-    '/ads/',
-    'advert',
-    'advertisement',
-    '/adjump',
-    'redtraffic'
-  ];
-
-  // 按行分割M3U8内容
-  const lines = m3u8Content.split('\\n');
-  const filteredLines = [];
-
-  let i = 0;
-  while (i < lines.length) {
-    const line = lines[i];
-
-    // 跳过 #EXT-X-DISCONTINUITY 标识
-    if (line.includes('#EXT-X-DISCONTINUITY')) {
-      i++;
-      continue;
-    }
-
-    // 如果是 EXTINF 行，检查下一行 URL 是否包含广告关键字
-    if (line.includes('#EXTINF:')) {
-      // 检查下一行 URL 是否包含广告关键字
-      if (i + 1 < lines.length) {
-        const nextLine = lines[i + 1];
-        const containsAdKeyword = adKeywords.some(keyword =>
-          nextLine.toLowerCase().includes(keyword.toLowerCase())
-        );
-
-        if (containsAdKeyword) {
-          // 跳过 EXTINF 行和 URL 行
-          i += 2;
-          continue;
-        }
-      }
-    }
-
-    // 保留当前行
-    filteredLines.push(line);
-    i++;
-  }
-
-  return filteredLines.join('\\n');
-}`;
+  const [rules, setRules] = useState<AdFilterRule[]>([
+    { ...DEFAULT_AD_FILTER_RULE },
+  ]);
 
   useEffect(() => {
-    // 从数据库配置读取自定义去广告代码
-    if (config?.SiteConfig?.CustomAdFilterCode) {
-      setAdFilterCode(config.SiteConfig.CustomAdFilterCode);
-    } else {
-      // 如果数据库没有保存的代码，使用默认代码
-      setAdFilterCode(defaultAdFilterCode);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    const configured = config?.SiteConfig?.AdFilterRules;
+    setRules(
+      configured && configured.length > 0
+        ? configured
+        : [{ ...DEFAULT_AD_FILTER_RULE }]
+    );
   }, [config]);
 
-  // 移除 TypeScript 类型注解，转换为纯 JavaScript
-  const removeTypeAnnotations = (code: string): string => {
-    return (
-      code
-        // 移除函数参数的类型注解：name: type
-        .replace(
-          /(\w+)\s*:\s*(string|number|boolean|any|void|never|unknown|object)\s*([,)])/g,
-          '$1$3'
-        )
-        // 移除函数返回值类型注解：): type {
-        .replace(
-          /\)\s*:\s*(string|number|boolean|any|void|never|unknown|object)\s*\{/g,
-          ') {'
-        )
-        // 移除变量声明的类型注解：const name: type =
-        .replace(
-          /(const|let|var)\s+(\w+)\s*:\s*(string|number|boolean|any|void|never|unknown|object)\s*=/g,
-          '$1 $2 ='
-        )
+  const updateRule = (index: number, patch: Partial<AdFilterRule>) => {
+    setRules((current) =>
+      current.map((rule, ruleIndex) =>
+        ruleIndex === index ? { ...rule, ...patch } : rule
+      )
     );
   };
 
-  // 保存自定义去广告代码
   const handleSave = async () => {
     await withLoading('saveAdFilterCode', async () => {
       try {
-        // 验证代码语法
-        try {
-          // 移除类型注解后验证
-          const jsCode = removeTypeAnnotations(adFilterCode);
-          // 使用 Function 构造器验证代码是否可以解析
-          new Function(
-            'type',
-            'm3u8Content',
-            jsCode + '\nreturn filterAdsFromM3U8(type, m3u8Content);'
-          );
-        } catch (parseError) {
-          console.error('代码验证失败:', parseError);
-          showError(
-            '代码语法错误：' +
-              (parseError instanceof Error
-                ? parseError.message
-                : '请检查代码格式'),
-            showAlert
-          );
-          return;
-        }
-
-        // 更新配置到数据库
         if (!config) {
           showError('配置未加载', showAlert);
           return;
         }
-
-        // 准备更新的站点配置，包含自定义去广告代码
         const updatedSiteConfig = {
           ...config.SiteConfig,
-          CustomAdFilterCode: adFilterCode,
-          CustomAdFilterVersion: Date.now(), // 使用时间戳作为版本号
+          AdFilterRules: rules.map((rule) => ({
+            ...rule,
+            sourceKey: rule.sourceKey.trim() || '*',
+            blockedDomains: rule.blockedDomains
+              .map((item) => item.trim().toLowerCase())
+              .filter(Boolean),
+            pathPatterns: rule.pathPatterns
+              .map((item) => item.trim().toLowerCase())
+              .filter(Boolean),
+            maxIntroAdSeconds: Math.max(0, rule.maxIntroAdSeconds || 0),
+          })),
         };
 
         const response = await fetch('/api/admin/site', {
@@ -13251,10 +13168,8 @@ const CustomAdFilterConfig = ({
           throw new Error(errorData.error || '保存配置失败');
         }
 
-        // 刷新配置
         await refreshConfig();
-
-        showSuccess('去广告代码保存成功，刷新后生效', showAlert);
+        showSuccess('结构化去广告规则已保存', showAlert);
       } catch (err) {
         showError(err instanceof Error ? err.message : '保存失败', showAlert);
         throw err;
@@ -13262,10 +13177,9 @@ const CustomAdFilterConfig = ({
     });
   };
 
-  // 重置为默认代码
   const handleReset = () => {
-    setAdFilterCode(defaultAdFilterCode);
-    showSuccess('已重置为默认代码', showAlert);
+    setRules([{ ...DEFAULT_AD_FILTER_RULE }]);
+    showSuccess('已重置为安全默认规则', showAlert);
   };
 
   if (!config) {
@@ -13278,7 +13192,6 @@ const CustomAdFilterConfig = ({
 
   return (
     <div className='space-y-4'>
-      {/* 说明区域 */}
       <div className='bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4'>
         <div className='flex items-center space-x-2 mb-2'>
           <svg
@@ -13295,59 +13208,147 @@ const CustomAdFilterConfig = ({
             />
           </svg>
           <span className='text-sm font-medium text-blue-800 dark:text-blue-300'>
-            使用说明
+            智能去广告
           </span>
         </div>
         <div className='text-sm text-blue-700 dark:text-blue-400 space-y-1'>
-          <p>• 此功能用于自定义 M3U8 播放列表的去广告逻辑</p>
-          <p>• 配置保存到数据库，对全平台所有用户生效</p>
-          <p>
-            • 客户端会自动缓存代码，只在版本更新时重新获取，不会频繁请求服务器
-          </p>
-          <p>
-            • 函数签名必须为:{' '}
-            <code className='bg-blue-100 dark:bg-blue-900/40 px-1 rounded'>
-              filterAdsFromM3U8(type, m3u8Content)
-            </code>
-          </p>
-          <p>• type 参数为视频源类型，m3u8Content 为播放列表内容</p>
-          <p>• 函数需要返回处理后的 M3U8 内容</p>
-          <p>• 支持 TypeScript 类型注解，保存时会自动转换为 JavaScript</p>
+          <p>• 高置信度规则自动移除，异常时立即回退原始清单</p>
+          <p>• SCTE-35 与 DATERANGE 可识别，合法 discontinuity 始终保留</p>
+          <p>• 不再执行任意 JavaScript，规则在 Web、TV 与服务端共享</p>
         </div>
       </div>
 
-      {/* 代码编辑区域 */}
-      <div className='space-y-3'>
+      {config.SiteConfig.CustomAdFilterCode && (
+        <div className='rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-800 dark:border-amber-700 dark:bg-amber-950/30 dark:text-amber-300'>
+          检测到旧版自定义代码。原值已保留用于恢复，但因安全原因已停止执行。
+        </div>
+      )}
+
+      <div className='space-y-4'>
         <div className='flex items-center justify-between'>
           <label className='text-sm font-medium text-gray-700 dark:text-gray-300'>
-            自定义去广告代码
+            结构化规则
           </label>
-          <button
-            onClick={handleReset}
-            className={`${buttonStyles.secondarySmall}`}
+          <div className='flex gap-2'>
+            <button
+              onClick={() =>
+                setRules((current) => [
+                  ...current,
+                  {
+                    sourceKey: '*',
+                    blockedDomains: [],
+                    pathPatterns: [],
+                    maxIntroAdSeconds: 30,
+                    removeScte35: true,
+                    enabled: true,
+                  },
+                ])
+              }
+              className={buttonStyles.primarySmall}
+            >
+              添加规则
+            </button>
+            <button onClick={handleReset} className={buttonStyles.secondarySmall}>
+              重置默认
+            </button>
+          </div>
+        </div>
+
+        {rules.map((rule, index) => (
+          <div
+            key={`${rule.sourceKey}-${index}`}
+            className='grid gap-3 rounded-xl border border-gray-200 p-4 dark:border-gray-700 lg:grid-cols-2'
           >
-            重置为默认
-          </button>
-        </div>
-        <div className='relative'>
-          <textarea
-            value={adFilterCode}
-            onChange={(e) => setAdFilterCode(e.target.value)}
-            rows={25}
-            placeholder='请输入自定义去广告代码...'
-            className='w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 font-mono text-sm leading-relaxed resize-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200 hover:border-gray-400 dark:hover:border-gray-500'
-            style={{
-              fontFamily:
-                'ui-monospace, SFMono-Regular, "SF Mono", Consolas, "Liberation Mono", Menlo, monospace',
-            }}
-            spellCheck={false}
-            data-gramm={false}
-          />
-        </div>
+            <label className='text-sm text-gray-700 dark:text-gray-300'>
+              资源 key（* 表示全部）
+              <input
+                value={rule.sourceKey}
+                onChange={(event) =>
+                  updateRule(index, { sourceKey: event.target.value })
+                }
+                className='mt-1 w-full rounded-lg border border-gray-300 bg-transparent px-3 py-2 dark:border-gray-600'
+              />
+            </label>
+            <label className='text-sm text-gray-700 dark:text-gray-300'>
+              片头广告最大秒数
+              <input
+                type='number'
+                min={0}
+                max={300}
+                value={rule.maxIntroAdSeconds}
+                onChange={(event) =>
+                  updateRule(index, {
+                    maxIntroAdSeconds: Number(event.target.value),
+                  })
+                }
+                className='mt-1 w-full rounded-lg border border-gray-300 bg-transparent px-3 py-2 dark:border-gray-600'
+              />
+            </label>
+            <label className='text-sm text-gray-700 dark:text-gray-300'>
+              广告域名（逗号分隔）
+              <input
+                value={rule.blockedDomains.join(', ')}
+                onChange={(event) =>
+                  updateRule(index, {
+                    blockedDomains: event.target.value.split(','),
+                  })
+                }
+                className='mt-1 w-full rounded-lg border border-gray-300 bg-transparent px-3 py-2 dark:border-gray-600'
+              />
+            </label>
+            <label className='text-sm text-gray-700 dark:text-gray-300'>
+              路径特征（逗号分隔）
+              <input
+                value={rule.pathPatterns.join(', ')}
+                onChange={(event) =>
+                  updateRule(index, {
+                    pathPatterns: event.target.value.split(','),
+                  })
+                }
+                className='mt-1 w-full rounded-lg border border-gray-300 bg-transparent px-3 py-2 dark:border-gray-600'
+              />
+            </label>
+            <div className='flex items-center gap-5 text-sm text-gray-700 dark:text-gray-300'>
+              <label className='flex items-center gap-2'>
+                <input
+                  type='checkbox'
+                  checked={rule.removeScte35}
+                  onChange={(event) =>
+                    updateRule(index, { removeScte35: event.target.checked })
+                  }
+                />
+                SCTE-35
+              </label>
+              <label className='flex items-center gap-2'>
+                <input
+                  type='checkbox'
+                  checked={rule.enabled}
+                  onChange={(event) =>
+                    updateRule(index, { enabled: event.target.checked })
+                  }
+                />
+                启用
+              </label>
+            </div>
+            <div className='flex justify-end'>
+              <button
+                onClick={() =>
+                  setRules((current) =>
+                    current.filter((_, ruleIndex) => ruleIndex !== index)
+                  )
+                }
+                disabled={rules.length === 1}
+                className={buttonStyles.dangerSmall}
+              >
+                删除
+              </button>
+            </div>
+          </div>
+        ))}
 
         <div className='flex items-center justify-between'>
           <div className='text-xs text-gray-500 dark:text-gray-400'>
-            修改后需保存才能生效，保存前会进行语法验证
+            保存后全平台生效，配置变更会自动生成可恢复版本
           </div>
           <button
             onClick={handleSave}
@@ -18079,6 +18080,8 @@ function AdminPageClient() {
             )}
           </div>
 
+          {role === 'owner' && <OperationsOverview />}
+
           {/* TMDB 未配置提示 */}
           {config && !config.SiteConfig.TMDBApiKey && (
             <div className='bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4 mb-4'>
@@ -18124,7 +18127,8 @@ function AdminPageClient() {
                 </div>
                 <div className='flex-1'>
                   <p className='text-sm font-medium text-amber-800 dark:text-amber-300'>
-                    当前视频源数量较多，可能会拖慢搜索与优选速度，建议适当精简
+                    已启用智能渐进搜索：每次最多选择 12 个候选源、每批 4
+                    个，并在结果充足后自动停止，全部资源仍会参与健康度轮换
                   </p>
                 </div>
               </div>

@@ -7,6 +7,18 @@ import { getAvailableApiSites, getCacheTime, getConfig } from '@/lib/config';
 import { searchFromApi } from '@/lib/downstream';
 import { getProxyToken } from '@/lib/emby-token';
 import { hasFeaturePermission } from '@/lib/permissions';
+import { checkRateLimit, getClientIp } from '@/lib/rate-limit';
+import {
+  getRuntimeCacheJson,
+  setRuntimeCacheJson,
+} from '@/lib/runtime-cache';
+import {
+  getSourceHealthMap,
+  getUserSourcePreferenceMap,
+  recordSearchObservations,
+  SearchObservation,
+} from '@/lib/source-health-store';
+import { progressiveSearch, rankSources } from '@/lib/source-selection';
 import {
   executeSavedSourceScript,
   listEnabledSourceScripts,
@@ -21,6 +33,21 @@ export async function GET(request: NextRequest) {
   const authInfo = getAuthInfoFromCookie(request);
   if (!authInfo || !authInfo.username) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+
+  const rateLimit = checkRateLimit({
+    key: `search:${authInfo.username}:${getClientIp(request)}`,
+    limit: 45,
+    windowMs: 60_000,
+  });
+  if (!rateLimit.allowed) {
+    return NextResponse.json(
+      { error: '搜索过于频繁，请稍后重试' },
+      {
+        status: 429,
+        headers: { 'Retry-After': String(rateLimit.retryAfterSeconds) },
+      }
+    );
   }
 
   const { searchParams } = new URL(request.url);
@@ -44,6 +71,24 @@ export async function GET(request: NextRequest) {
 
   const config = await getConfig();
   const apiSites = await getAvailableApiSites(authInfo.username, includeSpecialSources);
+  const configFingerprint = `${config.SourceConfig.length}:${
+    config.ConfigSubscribtion?.LastCheck || 0
+  }`;
+  const cacheKey = `search:v2:${encodeURIComponent(
+    authInfo.username
+  )}:${encodeURIComponent(query.trim().toLowerCase())}:${
+    includeSpecialSources ? 1 : 0
+  }:${configFingerprint}`;
+  const cached = await getRuntimeCacheJson<{ results: any[] }>(cacheKey);
+  if (cached) {
+    return NextResponse.json(cached, {
+      headers: {
+        'Cache-Control': 'private, max-age=60',
+        'X-MoonTV-Cache': 'hit',
+        'X-MoonTV-Sources-Attempted': '0',
+      },
+    });
+  }
   const [canAccessOpenList, canAccessEmby] = await Promise.all([
     hasFeaturePermission(authInfo.username, 'private_library'),
     hasFeaturePermission(authInfo.username, 'emby'),
@@ -178,18 +223,42 @@ export async function GET(request: NextRequest) {
       })
     : Promise.resolve([]);
 
-  // 添加超时控制和错误处理，避免慢接口拖累整体响应
-  const searchPromises = apiSites.map((site) =>
-    Promise.race([
-      searchFromApi(site, query),
-      new Promise((_, reject) =>
-        setTimeout(() => reject(new Error(`${site.name} timeout`)), 20000)
-      ),
-    ]).catch((err) => {
-      console.warn(`搜索失败 ${site.name}:`, err.message);
-      return []; // 返回空数组而不是抛出错误
-    })
-  );
+  // Cloudflare Free allows only 50 external subrequests per invocation.
+  // Rank every configured source, then query no more than 12 in waves of 4.
+  const [healthByKey, preferenceByKey] = await Promise.all([
+    getSourceHealthMap(apiSites.map((site) => site.key)),
+    getUserSourcePreferenceMap(authInfo.username),
+  ]);
+  const rankedSources = rankSources({
+    sites: apiSites,
+    healthByKey,
+    preferenceByKey,
+    configuredWeightByKey: weightMap,
+    query,
+    maxCandidates: 12,
+  });
+  const searchObservations: SearchObservation[] = [];
+  let attemptedSourceCount = 0;
+  const apiSearchPromise = progressiveSearch({
+    sources: rankedSources,
+    search: async (source) => searchFromApi(source.site, query),
+    onObservation: (source, observation) => {
+      searchObservations.push({
+        sourceKey: source.site.key,
+        ...observation,
+      });
+    },
+    options: {
+      maxCandidates: 12,
+      batchSize: 4,
+      enoughResults: 12,
+      batchTimeoutMs: 8500,
+    },
+  }).then(async ({ results, attempted }) => {
+    attemptedSourceCount = attempted.length;
+    await recordSearchObservations(searchObservations);
+    return results;
+  });
 
   const scriptSummaries = await listEnabledSourceScripts();
   const scriptPromises = scriptSummaries.map((script) =>
@@ -244,7 +313,7 @@ export async function GET(request: NextRequest) {
     const allResults = await Promise.all([
       openlistPromise,
       ...embyPromises,
-      ...searchPromises,
+      apiSearchPromise,
       ...scriptPromises,
     ]);
 
@@ -252,12 +321,12 @@ export async function GET(request: NextRequest) {
     // 添加安全检查，确保即使某个结果处理出错也不影响其他结果
     const openlistResults = Array.isArray(allResults[0]) ? allResults[0] : [];
     const embyResultsArray = allResults.slice(1, 1 + embyPromises.length);
-    const apiResults = allResults.slice(1 + embyPromises.length, 1 + embyPromises.length + searchPromises.length);
-    const scriptResults = allResults.slice(1 + embyPromises.length + searchPromises.length);
+    const apiResults = allResults[1 + embyPromises.length] || [];
+    const scriptResults = allResults.slice(2 + embyPromises.length);
 
     // 合并所有 Emby 结果，添加安全检查
     const embyResults = embyResultsArray.filter(Array.isArray).flat();
-    const apiResultsFlat = apiResults.filter(Array.isArray).flat();
+    const apiResultsFlat = Array.isArray(apiResults) ? apiResults : [];
     const scriptResultsFlat = scriptResults.filter(Array.isArray).flat();
 
     let flattenedResults = [...openlistResults, ...embyResults, ...apiResultsFlat, ...scriptResultsFlat];
@@ -284,9 +353,15 @@ export async function GET(request: NextRequest) {
     const cacheTime = await getCacheTime();
 
     if (flattenedResults.length === 0) {
-      // no cache if empty
+      await setRuntimeCacheJson(cacheKey, { results: [] }, 45);
       return NextResponse.json({ results: [] }, { status: 200 });
     }
+
+    await setRuntimeCacheJson(
+      cacheKey,
+      { results: flattenedResults },
+      Math.min(600, Math.max(300, cacheTime))
+    );
 
     return NextResponse.json(
       { results: flattenedResults },
@@ -296,6 +371,8 @@ export async function GET(request: NextRequest) {
           'CDN-Cache-Control': `public, s-maxage=${cacheTime}`,
           'Vercel-CDN-Cache-Control': `public, s-maxage=${cacheTime}`,
           'Netlify-Vary': 'query',
+          'X-MoonTV-Sources-Attempted': String(attemptedSourceCount),
+          'X-MoonTV-Cache': 'miss',
         },
       }
     );

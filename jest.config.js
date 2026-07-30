@@ -15,6 +15,12 @@ const customJestConfig = {
   moduleDirectories: ['node_modules', '<rootDir>/'],
 
   testEnvironment: 'jest-environment-jsdom',
+  modulePathIgnorePatterns: [
+    '<rootDir>/.next/',
+    '<rootDir>/.open-next/',
+    '<rootDir>/.open-next-windows-failed/',
+  ],
+  testPathIgnorePatterns: ['<rootDir>/tests/e2e/'],
 
   /**
    * Absolute imports and Module Path Aliases

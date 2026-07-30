@@ -19,6 +19,14 @@ binding = "DB"
 database_name = "moontvplus"
 database_id = "e2d21839-7097-4da3-a1b3-0653559b89ba"
 
+[[kv_namespaces]]
+binding = "CACHE"
+id = "d47b440192cc47658ae20516d5d8b341"
+
+[observability]
+enabled = true
+head_sampling_rate = 0.1
+
 [vars]
 NODE_ENV = "production"
 BUILD_TARGET = "cloudflare"

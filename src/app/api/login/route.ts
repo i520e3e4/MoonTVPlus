@@ -16,6 +16,7 @@ import {
   storeRefreshToken,
   TOKEN_CONFIG,
 } from '@/lib/refresh-token';
+import { checkRateLimit, getClientIp } from '@/lib/rate-limit';
 
 export const runtime = 'nodejs';
 
@@ -182,6 +183,20 @@ function getDeviceInfo(request: NextRequest): string {
 }
 
 export async function POST(req: NextRequest) {
+  const rateLimit = checkRateLimit({
+    key: `login:${getClientIp(req)}`,
+    limit: 12,
+    windowMs: 10 * 60_000,
+  });
+  if (!rateLimit.allowed) {
+    return NextResponse.json(
+      { error: '登录尝试过于频繁，请稍后重试' },
+      {
+        status: 429,
+        headers: { 'Retry-After': String(rateLimit.retryAfterSeconds) },
+      }
+    );
+  }
   try {
     const clientIp = getLoginClientIp(req);
     const banStatus = checkLoginBan(clientIp);

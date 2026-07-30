@@ -54,6 +54,8 @@ export interface AdminConfig {
     // 自定义去广告代码
     CustomAdFilterCode?: string;
     CustomAdFilterVersion?: number; // 代码版本号（时间戳）
+    // 结构化去广告规则。旧代码字段仅保留用于只读迁移与回滚。
+    AdFilterRules?: import('./m3u8-ad-filter').AdFilterRule[];
     // 注册相关配置
     EnableRegistration?: boolean; // 开启注册
     RequireRegistrationInviteCode?: boolean; // 注册时要求邀请码

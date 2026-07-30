@@ -56,6 +56,8 @@ import {
   saveLocalEpisodeProgress,
 } from '@/lib/episode-progress';
 import { isNetdiskSource, normalizeNetdiskSource } from '@/lib/netdisk/source';
+import { filterM3u8Ads } from '@/lib/m3u8-ad-filter';
+import { usePlaybackTelemetry } from '@/hooks/usePlaybackTelemetry';
 import {
   getRecommendationCache,
   recommendationCacheKeys,
@@ -711,6 +713,7 @@ function PlayPageClient() {
 
   // 当前源和ID - source 直接存储完整格式（如 'emby_wumei' 或 'emby'）
   const [currentSource, setCurrentSource] = useState(normalizeNetdiskSource(searchParams.get('source')) || '');
+  const playbackTelemetry = usePlaybackTelemetry(currentSource, 'web');
   const [currentId, setCurrentId] = useState(searchParams.get('id') || '');
   const [fileName] = useState(searchParams.get('fileName') || ''); // 小雅源：用户点击的文件名
   const isDirectPlay = currentSource === 'directplay';
@@ -862,6 +865,7 @@ function PlayPageClient() {
   const detailRef = useRef<SearchResult | null>(detail);
   const currentEpisodeIndexRef = useRef(currentEpisodeIndex);
   const isSourceChangingRef = useRef(false); // 标记是否正在换源
+  const automaticSourceSwitchRef = useRef(false);
 
   // 同步最新值到 refs
   useEffect(() => {
@@ -4282,80 +4286,10 @@ function PlayPageClient() {
   };
 
   function filterAdsFromM3U8(type: string, m3u8Content: string): string {
-    // 尝试使用缓存的自定义去广告代码
-    if (customAdFilterCodeRef.current && customAdFilterCodeRef.current.trim()) {
-      try {
-        // 移除 TypeScript 类型注解，转换为纯 JavaScript
-        const jsCode = customAdFilterCodeRef.current
-          // 移除函数参数的类型注解：name: type
-          .replace(/(\w+)\s*:\s*(string|number|boolean|any|void|never|unknown|object)\s*([,)])/g, '$1$3')
-          // 移除函数返回值类型注解：): type {
-          .replace(/\)\s*:\s*(string|number|boolean|any|void|never|unknown|object)\s*\{/g, ') {')
-          // 移除变量声明的类型注解：const name: type =
-          .replace(/(const|let|var)\s+(\w+)\s*:\s*(string|number|boolean|any|void|never|unknown|object)\s*=/g, '$1 $2 =');
-
-        // 创建并执行自定义函数
-        const customFunction = new Function('type', 'm3u8Content',
-          jsCode + '\nreturn filterAdsFromM3U8(type, m3u8Content);'
-        );
-        return customFunction(type, m3u8Content);
-      } catch (err) {
-        console.error('执行自定义去广告代码失败，使用默认规则:', err);
-        // 如果自定义代码执行失败，继续使用默认规则
-      }
-    }
-
-    // 默认去广告规则
-    if (!m3u8Content) return '';
-
-    // 广告关键字列表
-    const adKeywords = [
-      'sponsor',
-      '/ad/',
-      '/ads/',
-      'advert',
-      'advertisement',
-      '/adjump',
-      'redtraffic'
-    ];
-
-    // 按行分割M3U8内容
-    const lines = m3u8Content.split('\n');
-    const filteredLines = [];
-
-    let i = 0;
-    while (i < lines.length) {
-      const line = lines[i];
-
-      // 跳过 #EXT-X-DISCONTINUITY 标识
-      if (line.includes('#EXT-X-DISCONTINUITY')) {
-        i++;
-        continue;
-      }
-
-      // 如果是 EXTINF 行，检查下一行 URL 是否包含广告关键字
-      if (line.includes('#EXTINF:')) {
-        // 检查下一行 URL 是否包含广告关键字
-        if (i + 1 < lines.length) {
-          const nextLine = lines[i + 1];
-          const containsAdKeyword = adKeywords.some(keyword =>
-            nextLine.toLowerCase().includes(keyword.toLowerCase())
-          );
-
-          if (containsAdKeyword) {
-            // 跳过 EXTINF 行和 URL 行
-            i += 2;
-            continue;
-          }
-        }
-      }
-
-      // 保留当前行
-      filteredLines.push(line);
-      i++;
-    }
-
-    return filteredLines.join('\n');
+    return filterM3u8Ads({
+      sourceKey: type,
+      content: m3u8Content,
+    }).content;
   }
 
   // 跳过片头片尾配置相关函数
@@ -5454,6 +5388,35 @@ function PlayPageClient() {
       // 隐藏换源加载状态
       setIsVideoLoading(false);
       setError(err instanceof Error ? err.message : '换源失败');
+    }
+  };
+
+  const attemptAutomaticSourceSwitch = async (reason: string) => {
+    if (automaticSourceSwitchRef.current || isSourceChangingRef.current) return;
+    const nextSource = availableSources.find(
+      (source) =>
+        source.source !== currentSourceRef.current &&
+        Array.isArray(source.episodes) &&
+        source.episodes.length > currentEpisodeIndexRef.current
+    );
+    if (!nextSource) return;
+
+    automaticSourceSwitchRef.current = true;
+    if (artPlayerRef.current) {
+      artPlayerRef.current.notice.show = `线路异常（${reason}），正在自动切换至 ${
+        nextSource.source_name || nextSource.source
+      }`;
+    }
+    try {
+      await handleSourceChange(
+        nextSource.source,
+        nextSource.id,
+        nextSource.title
+      );
+    } finally {
+      window.setTimeout(() => {
+        automaticSourceSwitchRef.current = false;
+      }, 3000);
     }
   };
 
@@ -8922,8 +8885,20 @@ function PlayPageClient() {
           },
         });
 
+        const startupSwitchTimer = schedulePlayerTimeout(() => {
+          if (
+            artPlayerRef.current &&
+            !artPlayerRef.current.playing &&
+            (artPlayerRef.current.currentTime || 0) < 1
+          ) {
+            playbackTelemetry.markFailure('startup-timeout');
+            void attemptAutomaticSourceSwitch('首帧超过 8 秒');
+          }
+        }, 8000);
+
         // 监听视频可播放事件，这时恢复播放进度更可靠
         artPlayerRef.current.on('video:canplay', () => {
+          clearTrackedTimeout(startupSwitchTimer);
           let restoredResumeTime = false;
 
           // 若存在需要恢复的播放进度，则跳转
@@ -9010,6 +8985,7 @@ function PlayPageClient() {
 
         // 监听视频播放事件，检查是否需要显示播放记录跳转按钮
         artPlayerRef.current.on('video:playing', () => {
+          playbackTelemetry.markPlaying();
           // 检查是否需要显示播放记录跳转按钮
           // 条件：当前播放时间 < 10秒 且 播放记录时间 > 10秒
           const checkPlayRecordJump = async () => {
@@ -9202,6 +9178,13 @@ function PlayPageClient() {
           setTimeout(checkPlayRecordJump, 500);
         });
 
+        artPlayerRef.current.on('video:waiting', () => {
+          const bufferingCount = playbackTelemetry.markWaiting();
+          if (bufferingCount >= 3) {
+            void attemptAutomaticSourceSwitch('短时连续缓冲');
+          }
+        });
+
         // 监听视频时间更新事件，实现跳过片头片尾
         artPlayerRef.current.on('video:timeupdate', () => {
           if (!skipConfigRef.current.enable) return;
@@ -9248,10 +9231,12 @@ function PlayPageClient() {
 
         artPlayerRef.current.on('error', (err: any) => {
           console.error('播放器错误:', err);
+          playbackTelemetry.markFailure('player-error');
           // 如果已经成功播放过一段时间，忽略后续错误（可能是短暂网络波动）
           if (artPlayerRef.current && artPlayerRef.current.currentTime > 0) {
             return;
           }
+          void attemptAutomaticSourceSwitch('播放解析失败');
           // 原生 <video> 播放失败（非 HLS.js 管理的场景，如无后缀的直链）
           // 需要触发播放失败 UI，否则会永远卡在"加载中"
           const currentUrl = artPlayerRef.current?.option?.url || videoUrl;

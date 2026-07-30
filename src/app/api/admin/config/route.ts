@@ -5,6 +5,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { AdminConfigResult } from '@/lib/admin.types';
 import { getAuthInfoFromCookie } from '@/lib/auth';
 import { getConfig } from '@/lib/config';
+import { recordConfigVersion } from '@/lib/source-health-store';
 
 export const runtime = 'nodejs';
 
@@ -82,6 +83,7 @@ export async function POST(request: NextRequest) {
 
   try {
     const newConfig = await request.json();
+    const previousConfig = await getConfig();
 
     // 权限检查
     if (username !== process.env.USERNAME) {
@@ -102,6 +104,21 @@ export async function POST(request: NextRequest) {
 
     // 保存到数据库
     await db.saveAdminConfig(checkedConfig);
+    const changedSections = Object.keys(checkedConfig).filter(
+      (key) =>
+        JSON.stringify(
+          previousConfig[key as keyof typeof previousConfig]
+        ) !==
+        JSON.stringify(checkedConfig[key as keyof typeof checkedConfig])
+    );
+    await recordConfigVersion({
+      config: checkedConfig,
+      changedBy: username,
+      changeSummary:
+        changedSections.length > 0
+          ? `更新：${changedSections.join('、')}`
+          : '保存配置（无结构变化）',
+    });
 
     // 更新缓存
     await setCachedConfig(checkedConfig);

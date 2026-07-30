@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 
+import { getAuthInfoFromCookie } from '@/lib/auth';
 import { getConfig } from '@/lib/config';
+import { filterM3u8Ads } from '@/lib/m3u8-ad-filter';
+import { verifyProxyToken } from '@/lib/proxy-signature';
+import { checkRateLimit, getClientIp } from '@/lib/rate-limit';
 import { validateProxyUrlServerSide } from '@/lib/server/ssrf';
 
 export const runtime = 'nodejs';
@@ -14,15 +18,35 @@ export const maxDuration = 60; // 设置最大执行时间为 60 秒
  */
 export async function GET(request: NextRequest) {
   try {
+    const rateLimit = checkRateLimit({
+      key: `proxy:${getClientIp(request)}`,
+      limit: 120,
+      windowMs: 60_000,
+    });
+    if (!rateLimit.allowed) {
+      return NextResponse.json(
+        { error: '代理请求过于频繁' },
+        {
+          status: 429,
+          headers: { 'Retry-After': String(rateLimit.retryAfterSeconds) },
+        }
+      );
+    }
     const { searchParams } = new URL(request.url);
     const m3u8Url = searchParams.get('url');
     const source = searchParams.get('source') || '';
     const token = searchParams.get('token');
 
     // Token 鉴权：如果环境变量设置了 token，则必须验证
-    const envToken = process.env.NEXT_PUBLIC_PROXY_M3U8_TOKEN;
+    const envToken =
+      process.env.PROXY_M3U8_TOKEN ||
+      process.env.NEXT_PUBLIC_PROXY_M3U8_TOKEN;
     if (envToken && envToken.trim() !== '') {
-      if (!token || token !== envToken) {
+      const validToken =
+        !!token &&
+        (token === envToken || (await verifyProxyToken(token, envToken)));
+      const authenticatedSession = getAuthInfoFromCookie(request);
+      if (!validToken && !authenticatedSession?.username) {
         return NextResponse.json(
           { error: '无效的访问令牌' },
           { status: 401 }
@@ -144,32 +168,23 @@ export async function GET(request: NextRequest) {
       // 不直接拒绝（可能是不规范但仍可播放的 m3u8），仅打印警告继续处理
     }
 
-    // 执行去广告逻辑
+    // Execute the shared structured filter. Admin-provided JavaScript is
+    // intentionally never evaluated in the Worker.
     const config = await getConfig();
-    const customAdFilterCode = config.SiteConfig?.CustomAdFilterCode || '';
-
-    if (customAdFilterCode && customAdFilterCode.trim()) {
-      try {
-        // 移除 TypeScript 类型注解,转换为纯 JavaScript
-        const jsCode = customAdFilterCode
-          .replace(/(\w+)\s*:\s*(string|number|boolean|any|void|never|unknown|object)\s*([,)])/g, '$1$3')
-          .replace(/\)\s*:\s*(string|number|boolean|any|void|never|unknown|object)\s*\{/g, ') {')
-          .replace(/(const|let|var)\s+(\w+)\s*:\s*(string|number|boolean|any|void|never|unknown|object)\s*=/g, '$1 $2 =');
-
-        // 创建并执行自定义函数
-        const customFunction = new Function('type', 'm3u8Content',
-          jsCode + '\nreturn filterAdsFromM3U8(type, m3u8Content);'
-        );
-        m3u8Content = customFunction(source, m3u8Content);
-      } catch (err) {
-        console.error('执行自定义去广告代码失败,使用默认规则:', err);
-        // 继续使用默认规则
-        m3u8Content = filterAdsFromM3U8Default(source, m3u8Content);
-      }
-    } else {
-      // 使用默认去广告规则
-      m3u8Content = filterAdsFromM3U8Default(source, m3u8Content);
-    }
+    const adFilterResult = filterM3u8Ads({
+      sourceKey: source,
+      content: m3u8Content,
+      rules: config.SiteConfig?.AdFilterRules,
+    });
+    m3u8Content = adFilterResult.content;
+    console.log(
+      JSON.stringify({
+        event: 'm3u8_ad_filter',
+        source,
+        removedSegments: adFilterResult.removedSegments,
+        fellBack: adFilterResult.fellBack,
+      })
+    );
 
     // 处理 m3u8 中的相对链接
     m3u8Content = resolveM3u8Links(m3u8Content, m3u8Url, source, origin, token || '');
@@ -189,65 +204,6 @@ export async function GET(request: NextRequest) {
       { status: 500 }
     );
   }
-}
-
-/**
- * 默认去广告规则（服务端版本）
- * 注意：前端 page.tsx 中的 filterAdsFromM3U8 是客户端侧的去广告逻辑（用于直连模式下由 HLS.js 的自定义 loader 拦截）。
- * 本函数用于代理模式下，在服务端对 m3u8 内容进行去广告处理后再返回给客户端。
- * 两套逻辑需要保持同步更新。
- */
-function filterAdsFromM3U8Default(type: string, m3u8Content: string): string {
-  if (!m3u8Content) return '';
-
-  // 广告关键字列表
-  const adKeywords = [
-    'sponsor',
-    '/ad/',
-    '/ads/',
-    'advert',
-    'advertisement',
-    '/adjump',
-    'redtraffic'
-  ];
-
-  // 按行分割M3U8内容
-  const lines = m3u8Content.split('\n');
-  const filteredLines = [];
-
-  let i = 0;
-  while (i < lines.length) {
-    const line = lines[i];
-
-    // 跳过 #EXT-X-DISCONTINUITY 标识
-    if (line.includes('#EXT-X-DISCONTINUITY')) {
-      i++;
-      continue;
-    }
-
-    // 如果是 EXTINF 行，检查下一行 URL 是否包含广告关键字
-    if (line.includes('#EXTINF:')) {
-      // 检查下一行 URL 是否包含广告关键字
-      if (i + 1 < lines.length) {
-        const nextLine = lines[i + 1];
-        const containsAdKeyword = adKeywords.some(keyword =>
-          nextLine.toLowerCase().includes(keyword.toLowerCase())
-        );
-
-        if (containsAdKeyword) {
-          // 跳过 EXTINF 行和 URL 行
-          i += 2;
-          continue;
-        }
-      }
-    }
-
-    // 保留当前行
-    filteredLines.push(line);
-    i++;
-  }
-
-  return filteredLines.join('\n');
 }
 
 /**

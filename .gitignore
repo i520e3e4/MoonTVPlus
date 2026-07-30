@@ -40,6 +40,10 @@ yarn-error.log*
 .edgeone/
 .wrangler/
 wrangler.toml.bak
+.deployment-backups/
+.open-next-windows-failed/
+.wrangler-login*.log
+.codex-*.log
 
 # typescript
 *.tsbuildinfo

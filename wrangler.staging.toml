@@ -1,0 +1,32 @@
+name = "moontv-plus-staging"
+compatibility_date = "2024-09-23"
+compatibility_flags = ["nodejs_compat"]
+main = ".open-next/worker.js"
+minify = true
+routes = [
+  { pattern = "staging-newmoon.686423.xyz", custom_domain = true }
+]
+
+[assets]
+directory = ".open-next/assets"
+binding = "ASSETS"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "moontvplus-staging"
+database_id = "f65b502f-58b3-4602-b6df-80ce67c8f468"
+
+[[kv_namespaces]]
+binding = "CACHE"
+id = "a978cfd81d884301a5e6db6c71ea3c57"
+
+[observability]
+enabled = true
+head_sampling_rate = 1
+
+[vars]
+NODE_ENV = "production"
+BUILD_TARGET = "cloudflare"
+NEXT_PUBLIC_STORAGE_TYPE = "d1"
+NEXT_PUBLIC_SITE_NAME = "NewMoon Staging"
+SITE_BASE = "https://staging-newmoon.686423.xyz"

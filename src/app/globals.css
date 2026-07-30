@@ -52,6 +52,14 @@
 
 :root {
   --foreground-rgb: 255, 255, 255;
+  --cinema-bg: #05080f;
+  --cinema-surface: rgba(15, 23, 42, 0.78);
+  --cinema-surface-strong: rgba(15, 23, 42, 0.94);
+  --cinema-border: rgba(148, 163, 184, 0.14);
+  --cinema-accent: #22d3ee;
+  --cinema-accent-secondary: #8b5cf6;
+  --cinema-radius: 1rem;
+  --cinema-shadow: 0 20px 60px rgba(0, 0, 0, 0.32);
 }
 
 html,
@@ -64,6 +72,41 @@ body {
 
 body {
   color: rgb(var(--foreground-rgb));
+  background:
+    radial-gradient(circle at 12% -8%, rgba(34, 211, 238, 0.13), transparent 32rem),
+    radial-gradient(circle at 88% 5%, rgba(139, 92, 246, 0.12), transparent 28rem),
+    linear-gradient(180deg, #070b14 0%, var(--cinema-bg) 48%, #03050a 100%);
+  background-attachment: fixed;
+}
+
+.cinema-surface {
+  border: 1px solid var(--cinema-border);
+  border-radius: var(--cinema-radius);
+  background: var(--cinema-surface);
+  box-shadow: var(--cinema-shadow);
+  backdrop-filter: blur(18px);
+}
+
+.cinema-heading {
+  background: linear-gradient(90deg, #f8fafc, #a5f3fc 55%, #c4b5fd);
+  background-clip: text;
+  color: transparent;
+}
+
+:where(button, a, input, select, textarea):focus-visible {
+  outline: 3px solid var(--cinema-accent);
+  outline-offset: 3px;
+}
+
+@media (min-width: 1280px) and (pointer: coarse) {
+  :where(button, a, input, select) {
+    min-height: 3.25rem;
+    font-size: 1.08rem;
+  }
+
+  :where(button, a):focus-visible {
+    transform: scale(1.045);
+  }
 }
 
 html:not(.dark) body {
