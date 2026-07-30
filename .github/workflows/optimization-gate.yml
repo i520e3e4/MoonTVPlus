@@ -3,6 +3,7 @@ name: MoonTVPlus optimization gate
 on:
   push:
     branches:
+      - main
       - codex/full-optimization
   workflow_dispatch:
 
@@ -41,4 +42,3 @@ jobs:
           path: .open-next
           include-hidden-files: true
           retention-days: 3
-

@@ -16,6 +16,7 @@ permissions:
 
 jobs:
   deploy:
+    if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     name: Deploy to Cloudflare Pages
 
@@ -48,7 +49,6 @@ jobs:
           echo "NEXT_PUBLIC_DOUBAN_IMAGE_PROXY=${{ secrets.NEXT_PUBLIC_DOUBAN_IMAGE_PROXY }}" >> $GITHUB_ENV
           echo "NEXT_PUBLIC_DISABLE_YELLOW_FILTER=${{ secrets.NEXT_PUBLIC_DISABLE_YELLOW_FILTER }}" >> $GITHUB_ENV
           echo "NEXT_PUBLIC_FLUID_SEARCH=${{ secrets.NEXT_PUBLIC_FLUID_SEARCH }}" >> $GITHUB_ENV
-          echo "NEXT_PUBLIC_PROXY_M3U8_TOKEN=${{ secrets.NEXT_PUBLIC_PROXY_M3U8_TOKEN }}" >> $GITHUB_ENV
           echo "NEXT_PUBLIC_DANMAKU_CACHE_EXPIRE_MINUTES=${{ secrets.NEXT_PUBLIC_DANMAKU_CACHE_EXPIRE_MINUTES }}" >> $GITHUB_ENV
           echo "NEXT_PUBLIC_VOICE_CHAT_STRATEGY=${{ secrets.NEXT_PUBLIC_VOICE_CHAT_STRATEGY }}" >> $GITHUB_ENV
           echo "NEXT_PUBLIC_ENABLE_OFFLINE_DOWNLOAD=${{ secrets.NEXT_PUBLIC_ENABLE_OFFLINE_DOWNLOAD }}" >> $GITHUB_ENV
