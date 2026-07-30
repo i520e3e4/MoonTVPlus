@@ -17,7 +17,6 @@ import { DownloadPanel } from '../components/DownloadPanel';
 import { GlobalErrorIndicator } from '../components/GlobalErrorIndicator';
 import RouteScrollReset from '../components/RouteScrollReset';
 import { SiteProvider } from '../components/SiteProvider';
-import { ThemeProvider } from '../components/ThemeProvider';
 import { TokenRefreshManager } from '../components/TokenRefreshManager';
 import TopProgressBar from '../components/TopProgressBar';
 import ChatFloatingWindow from '../components/watch-room/ChatFloatingWindow';
@@ -340,7 +339,12 @@ export default async function RootLayout({
   };
 
   return (
-    <html lang='zh-CN' suppressHydrationWarning>
+    <html
+      lang='zh-CN'
+      className='dark'
+      style={{ colorScheme: 'dark' }}
+      suppressHydrationWarning
+    >
       <head>
         <meta
           name='viewport'
@@ -406,34 +410,26 @@ export default async function RootLayout({
       <body
         className={`${inter.className} min-h-screen bg-white text-gray-900 dark:bg-black dark:text-gray-200`}
       >
-        <ThemeProvider
-          attribute='class'
-          defaultTheme='dark'
-          forcedTheme='dark'
-          enableSystem={false}
-          disableTransitionOnChange
+        <TopProgressBar />
+        <RouteScrollReset />
+        <TokenRefreshManager />
+        <SiteProvider
+          siteName={siteName}
+          announcement={announcement}
+          announcementDisplayMode={announcementDisplayMode}
+          tmdbApiKey={tmdbApiKey}
         >
-          <TopProgressBar />
-          <RouteScrollReset />
-          <TokenRefreshManager />
-          <SiteProvider
-            siteName={siteName}
-            announcement={announcement}
-            announcementDisplayMode={announcementDisplayMode}
-            tmdbApiKey={tmdbApiKey}
-          >
-            <WatchRoomProvider>
-              <DownloadProvider>
-                <StartupCacheCleanup />
-                {children}
-                <GlobalErrorIndicator />
-                <ChatFloatingWindow />
-                <DownloadBubble />
-                <DownloadPanel />
-              </DownloadProvider>
-            </WatchRoomProvider>
-          </SiteProvider>
-        </ThemeProvider>
+          <WatchRoomProvider>
+            <DownloadProvider>
+              <StartupCacheCleanup />
+              {children}
+              <GlobalErrorIndicator />
+              <ChatFloatingWindow />
+              <DownloadBubble />
+              <DownloadPanel />
+            </DownloadProvider>
+          </WatchRoomProvider>
+        </SiteProvider>
       </body>
     </html>
   );
