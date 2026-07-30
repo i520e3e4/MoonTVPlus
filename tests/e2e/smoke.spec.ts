@@ -59,3 +59,35 @@ test('owner can open the operations dashboard with all configured sources', asyn
     timeout: 15_000,
   });
 });
+
+test('search input stays below the fixed desktop navigation', async ({
+  page,
+}) => {
+  test.skip(
+    !process.env.E2E_USERNAME || !process.env.E2E_PASSWORD,
+    'staging credentials are required'
+  );
+  const login = await page.request.post('/api/login', {
+    data: {
+      username: process.env.E2E_USERNAME,
+      password: process.env.E2E_PASSWORD,
+    },
+  });
+  expect(login.ok()).toBeTruthy();
+
+  await page.goto('/search', { waitUntil: 'domcontentloaded' });
+  const navigation = page.locator('[data-sidebar]');
+  const searchInput = page.locator('#searchInput');
+  await expect(searchInput).toBeVisible();
+
+  if (await navigation.isVisible()) {
+    const navigationBox = await navigation.boundingBox();
+    const searchBox = await searchInput.boundingBox();
+    if (!navigationBox || !searchBox) {
+      throw new Error('navigation or search input has no layout box');
+    }
+    expect(searchBox.y).toBeGreaterThanOrEqual(
+      navigationBox.y + navigationBox.height + 16
+    );
+  }
+});

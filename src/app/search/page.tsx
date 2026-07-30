@@ -32,7 +32,10 @@ import {
   subscribeToDataUpdates,
 } from '@/lib/db.client';
 import { SearchResult } from '@/lib/types';
-import { appendSpecialSourceParam, isSpecialSourcesEnabledOnDevice } from '@/lib/special-source.client';
+import {
+  appendSpecialSourceParam,
+  isSpecialSourcesEnabledOnDevice,
+} from '@/lib/special-source.client';
 import { processImageUrl } from '@/lib/utils';
 
 import AcgSearch from '@/components/AcgSearch';
@@ -1292,7 +1295,9 @@ function SearchPageClient() {
       if (currentFluidSearch) {
         // 流式搜索：打开新的流式连接
         const es = new EventSource(
-          appendSpecialSourceParam(`/api/search/ws?q=${encodeURIComponent(trimmed)}`)
+          appendSpecialSourceParam(
+            `/api/search/ws?q=${encodeURIComponent(trimmed)}`
+          )
         );
         eventSourceRef.current = es;
 
@@ -1399,7 +1404,9 @@ function SearchPageClient() {
       } else {
         // 传统搜索：使用普通接口
         fetch(
-          appendSpecialSourceParam(`/api/search?q=${encodeURIComponent(trimmed)}`)
+          appendSpecialSourceParam(
+            `/api/search?q=${encodeURIComponent(trimmed)}`
+          )
         )
           .then((response) => response.json())
           .then((data) => {
@@ -1726,7 +1733,7 @@ function SearchPageClient() {
 
   return (
     <PageLayout activePath='/search'>
-      <div className='px-4 sm:px-10 py-4 sm:py-8 overflow-visible mb-10'>
+      <div className='search-page-content mb-10 overflow-visible px-4 pb-4 pt-4 sm:px-10 sm:pb-8 sm:pt-8 md:pt-24'>
         {/* 搜索框 */}
         <div className='mb-0'>
           <form onSubmit={handleSearch} className='max-w-2xl mx-auto'>
@@ -1740,7 +1747,7 @@ function SearchPageClient() {
                 onFocus={handleInputFocus}
                 placeholder='搜索电影、电视剧...'
                 autoComplete='off'
-                className='w-full h-12 rounded-lg bg-gray-50/80 py-3 pl-10 pr-12 text-sm text-gray-700 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-green-400 focus:bg-white border border-gray-200/50 shadow-sm dark:bg-gray-800 dark:text-gray-300 dark:placeholder-gray-500 dark:focus:bg-gray-700 dark:border-gray-700'
+                className='h-12 w-full rounded-md border border-white/10 bg-zinc-800/90 py-3 pl-10 pr-12 text-sm text-zinc-100 shadow-sm placeholder:text-zinc-500 focus:border-red-500/70 focus:bg-zinc-800 focus:outline-none focus:ring-2 focus:ring-red-600/50'
               />
 
               {/* 清除按钮 */}

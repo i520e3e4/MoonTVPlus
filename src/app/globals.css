@@ -232,6 +232,12 @@ html:not(.dark) body {
   z-index: 800 !important;
 }
 
+.netflix-shell:not([data-page='/']) .netflix-desktop-nav {
+  border-bottom-color: rgba(255, 255, 255, 0.08) !important;
+  background: rgba(20, 20, 20, 0.96) !important;
+  backdrop-filter: blur(14px) !important;
+}
+
 .netflix-nav-inner {
   width: 100%;
   height: 4.25rem !important;

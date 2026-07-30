@@ -65,7 +65,10 @@ const PageLayout = ({
 
   return (
     <VersionCheckProvider>
-      <div className='netflix-shell relative w-full min-h-screen overflow-hidden'>
+      <div
+        className='netflix-shell relative w-full min-h-screen overflow-hidden'
+        data-page={activePath}
+      >
         {shouldShowSharedBackground && backgroundImage && (
           <>
             <div
