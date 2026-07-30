@@ -1,6 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any,no-console */
 
 import { NextRequest, NextResponse } from 'next/server';
+import { getCloudflareContext } from '@opennextjs/cloudflare';
 
 import { getAuthInfoFromCookie } from '@/lib/auth';
 import { getAvailableApiSites, getCacheTime, getConfig } from '@/lib/config';
@@ -254,9 +255,15 @@ export async function GET(request: NextRequest) {
       enoughResults: 4,
       batchTimeoutMs: 1000,
     },
-  }).then(async ({ results, attempted }) => {
+  }).then(({ results, attempted }) => {
     attemptedSourceCount = attempted.length;
-    await recordSearchObservations(searchObservations);
+    const observationWrite = recordSearchObservations(searchObservations);
+    try {
+      getCloudflareContext().ctx.waitUntil(observationWrite);
+    } catch {
+      // Keep local development and non-Cloudflare runtimes functional.
+      void observationWrite;
+    }
     return results;
   });
 
