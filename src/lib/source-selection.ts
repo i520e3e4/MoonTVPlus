@@ -129,12 +129,21 @@ export function rankSources(params: {
     .sort((a, b) => b.score - a.score);
 
   const targetCount = Math.min(maxCandidates, sites.length);
-  const exploitationCount =
-    targetCount >= 6 ? Math.max(1, targetCount - 1) : targetCount;
+  const explorationRoll =
+    stableHash(`${query}:${now.toString().slice(0, -6)}`) % 10;
+  const shouldExplore = targetCount >= 4 && explorationRoll === 0;
+  const exploitationCount = Math.max(
+    1,
+    targetCount - (shouldExplore ? 1 : 0)
+  );
   const selected = available.slice(0, exploitationCount);
   const explorationPool = available.slice(exploitationCount);
 
-  if (selected.length < targetCount && explorationPool.length > 0) {
+  if (
+    shouldExplore &&
+    selected.length < targetCount &&
+    explorationPool.length > 0
+  ) {
     const explorationIndex =
       stableHash(`${query}:${now.toString().slice(0, -6)}`) %
       explorationPool.length;

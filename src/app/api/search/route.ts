@@ -224,7 +224,8 @@ export async function GET(request: NextRequest) {
     : Promise.resolve([]);
 
   // Cloudflare Free allows only 50 external subrequests per invocation.
-  // Rank every configured source, then query no more than 12 in waves of 4.
+  // Rank every configured source and return the first four-source wave.
+  // Stable exploration rotates data-poor sources into roughly 10% of queries.
   const [healthByKey, preferenceByKey] = await Promise.all([
     getSourceHealthMap(apiSites.map((site) => site.key)),
     getUserSourcePreferenceMap(authInfo.username),
@@ -235,7 +236,7 @@ export async function GET(request: NextRequest) {
     preferenceByKey,
     configuredWeightByKey: weightMap,
     query,
-    maxCandidates: 12,
+    maxCandidates: 4,
   });
   const searchObservations: SearchObservation[] = [];
   let attemptedSourceCount = 0;
@@ -249,7 +250,7 @@ export async function GET(request: NextRequest) {
       });
     },
     options: {
-      maxCandidates: 12,
+      maxCandidates: 4,
       batchSize: 4,
       enoughResults: 4,
       batchTimeoutMs: 1400,
