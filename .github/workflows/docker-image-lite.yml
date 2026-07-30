@@ -22,6 +22,7 @@ permissions:
 
 jobs:
   build:
+    if: github.repository == 'mtvpls/MoonTVPlus'
     strategy:
       matrix:
         include:
@@ -83,6 +84,7 @@ jobs:
           retention-days: 1
 
   merge:
+    if: github.repository == 'mtvpls/MoonTVPlus'
     runs-on: ubuntu-latest
     needs:
       - build
@@ -111,6 +113,7 @@ jobs:
             $(printf 'ghcr.io/mtvpls/moontvplus-lite@sha256:%s ' *)
 
   cleanup-refresh:
+    if: github.repository == 'mtvpls/MoonTVPlus'
     runs-on: ubuntu-latest
     needs:
       - merge
