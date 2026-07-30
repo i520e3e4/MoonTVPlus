@@ -190,13 +190,19 @@ export async function progressiveSearch<T>(params: {
         const controller = new AbortController();
         const startedAt = Date.now();
         let timedOut = false;
-        const timeoutId = setTimeout(() => {
-          timedOut = true;
-          controller.abort();
-        }, batchTimeoutMs);
+        let timeoutId: ReturnType<typeof setTimeout> | null = null;
 
         try {
-          const sourceResults = await search(source, controller.signal);
+          const sourceResults = await Promise.race([
+            search(source, controller.signal),
+            new Promise<T[]>((_, reject) => {
+              timeoutId = setTimeout(() => {
+                timedOut = true;
+                controller.abort();
+                reject(new Error('source-search-timeout'));
+              }, batchTimeoutMs);
+            }),
+          ]);
           await onObservation?.(source, {
             success: true,
             timeout: false,
@@ -213,7 +219,7 @@ export async function progressiveSearch<T>(params: {
           });
           return [];
         } finally {
-          clearTimeout(timeoutId);
+          if (timeoutId) clearTimeout(timeoutId);
         }
       })
     );

@@ -7,6 +7,8 @@
 
 # testing
 /coverage
+/test-results/
+/playwright-report/
 
 # next.js
 .next
@@ -41,6 +43,7 @@ yarn-error.log*
 .wrangler/
 wrangler.toml.bak
 .deployment-backups/
+.deployment-artifacts/
 .open-next-windows-failed/
 .wrangler-login*.log
 .codex-*.log

@@ -36,3 +36,24 @@ test('authenticated search respects the twelve-source request ceiling', async ({
   expect(attempted).toBeLessThanOrEqual(12);
 });
 
+test('owner can open the operations dashboard with all configured sources', async ({
+  page,
+}) => {
+  test.skip(
+    !process.env.E2E_USERNAME || !process.env.E2E_PASSWORD,
+    'staging credentials are required'
+  );
+  const login = await page.request.post('/api/login', {
+    data: {
+      username: process.env.E2E_USERNAME,
+      password: process.env.E2E_PASSWORD,
+    },
+  });
+  expect(login.ok()).toBeTruthy();
+
+  await page.goto('/admin', { waitUntil: 'domcontentloaded' });
+  await expect(
+    page.getByRole('heading', { name: '运行概览与资源健康' })
+  ).toBeVisible();
+  await expect(page.getByText('72', { exact: true }).first()).toBeVisible();
+});

@@ -93,5 +93,20 @@ describe('source selection', () => {
     expect(attempted).toHaveLength(4);
     expect(searched).toHaveLength(4);
   });
-});
 
+  it('enforces the timeout even when a downstream client ignores abort', async () => {
+    const sources = rankSources({
+      sites: createSites(1),
+      maxCandidates: 1,
+    });
+    const startedAt = Date.now();
+    const { results } = await progressiveSearch({
+      sources,
+      search: async () => new Promise<never>(() => undefined),
+      options: { batchSize: 1, batchTimeoutMs: 20 },
+    });
+
+    expect(results).toEqual([]);
+    expect(Date.now() - startedAt).toBeLessThan(250);
+  });
+});

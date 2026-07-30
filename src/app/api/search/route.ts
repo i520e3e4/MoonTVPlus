@@ -252,7 +252,7 @@ export async function GET(request: NextRequest) {
       maxCandidates: 12,
       batchSize: 4,
       enoughResults: 12,
-      batchTimeoutMs: 8500,
+      batchTimeoutMs: 1600,
     },
   }).then(async ({ results, attempted }) => {
     attemptedSourceCount = attempted.length;

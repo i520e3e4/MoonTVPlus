@@ -19,6 +19,7 @@ const customJestConfig = {
     '<rootDir>/.next/',
     '<rootDir>/.open-next/',
     '<rootDir>/.open-next-windows-failed/',
+    '<rootDir>/.deployment-artifacts/',
   ],
   testPathIgnorePatterns: ['<rootDir>/tests/e2e/'],
 
