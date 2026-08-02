@@ -213,10 +213,10 @@ jobs:
             grep -q 'Connected to moontv-plus' worker-tail.log && break
             sleep 1
           done
-          HTTP_STATUS=$(curl --silent --show-error --output response.html --write-out '%{http_code}' https://newmoon.686423.xyz/login || true)
-          echo "Production HTTP status: $HTTP_STATUS"
-          sleep 10
+          echo "TAIL_READY"
+          # Keep the tail open long enough for an external smoke request. The
+          # GitHub runner itself can be challenged by Cloudflare bot controls.
+          sleep 45
           kill "$TAIL_PID" 2>/dev/null || true
           wait "$TAIL_PID" 2>/dev/null || true
           cat worker-tail.log
-          test "$HTTP_STATUS" = "200"
