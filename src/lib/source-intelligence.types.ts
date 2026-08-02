@@ -54,5 +54,6 @@ export interface ProgressiveSearchOptions {
   maxCandidates?: number;
   batchSize?: number;
   enoughResults?: number;
+  enoughDistinctSources?: number;
   batchTimeoutMs?: number;
 }

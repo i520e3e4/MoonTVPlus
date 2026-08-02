@@ -171,6 +171,8 @@ export function rankSources(params: {
 export async function progressiveSearch<T>(params: {
   sources: RankedSource[];
   search: (source: RankedSource, signal: AbortSignal) => Promise<T[]>;
+  isResultUseful?: (result: T) => boolean;
+  getResultSourceKey?: (result: T) => string;
   onObservation?: (
     source: RankedSource,
     observation: {
@@ -185,11 +187,14 @@ export async function progressiveSearch<T>(params: {
   const {
     sources,
     search,
+    isResultUseful = () => true,
+    getResultSourceKey,
     onObservation,
     options: {
       maxCandidates = 12,
       batchSize = 4,
       enoughResults = 12,
+      enoughDistinctSources = 1,
       batchTimeoutMs = 8500,
     } = {},
   } = params;
@@ -197,6 +202,17 @@ export async function progressiveSearch<T>(params: {
   const candidates = sources.slice(0, maxCandidates);
   const results: T[] = [];
   const attempted: RankedSource[] = [];
+
+  const hasEnoughUsefulResults = () => {
+    const usefulResults = results.filter(isResultUseful);
+    if (usefulResults.length < enoughResults) return false;
+    if (!getResultSourceKey) return true;
+
+    return (
+      new Set(usefulResults.map(getResultSourceKey)).size >=
+      enoughDistinctSources
+    );
+  };
 
   for (let start = 0; start < candidates.length; start += batchSize) {
     const batch = candidates.slice(start, start + batchSize);
@@ -246,15 +262,15 @@ export async function progressiveSearch<T>(params: {
 
     // Return the first useful wave instead of waiting for every slow source.
     // Remaining requests are aborted once enough results have arrived.
-    while (pending.size > 0 && results.length < enoughResults) {
+    while (pending.size > 0 && !hasEnoughUsefulResults()) {
       const { index, sourceResults } = await Promise.race(pending.values());
       pending.delete(index);
       results.push(...sourceResults);
     }
-    if (results.length >= enoughResults) {
+    if (hasEnoughUsefulResults()) {
       controllers.forEach((controller) => controller.abort());
     }
-    if (results.length >= enoughResults) break;
+    if (hasEnoughUsefulResults()) break;
   }
 
   return { results, attempted };

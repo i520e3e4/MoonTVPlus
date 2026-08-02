@@ -152,6 +152,76 @@ describe('source selection', () => {
     expect(Date.now() - startedAt).toBeLessThan(200);
   });
 
+  it('continues searching when one source returns many irrelevant matches', async () => {
+    const sources = rankSources({
+      sites: createSites(8),
+      maxCandidates: 8,
+    });
+    const { results, attempted } = await progressiveSearch({
+      sources,
+      search: async (source) => {
+        const sourceIndex = Number(source.site.key.split('-')[1]);
+        if (sourceIndex === 1) {
+          return Array.from({ length: 12 }, () => ({
+            source: source.site.key,
+            exact: false,
+          }));
+        }
+        if (sourceIndex === 2 || sourceIndex === 5) {
+          return [{ source: source.site.key, exact: true }];
+        }
+        return [];
+      },
+      isResultUseful: (result) => result.exact,
+      getResultSourceKey: (result) => result.source,
+      options: {
+        batchSize: 4,
+        enoughResults: 2,
+        enoughDistinctSources: 2,
+        batchTimeoutMs: 1000,
+      },
+    });
+
+    expect(attempted).toHaveLength(8);
+    expect(
+      new Set(
+        results.filter((result) => result.exact).map((result) => result.source)
+      ).size
+    ).toBe(2);
+  });
+
+  it('requires useful results to come from distinct sources', async () => {
+    const sources = rankSources({
+      sites: createSites(8),
+      maxCandidates: 8,
+    });
+    const { attempted } = await progressiveSearch({
+      sources,
+      search: async (source) => {
+        if (source.site.key === sources[0].site.key) {
+          return Array.from({ length: 12 }, () => ({
+            source: source.site.key,
+            exact: true,
+          }));
+        }
+        if (source.site.key === sources[4].site.key) {
+          return [{ source: source.site.key, exact: true }];
+        }
+        return [];
+      },
+      isResultUseful: (result) => result.exact,
+      getResultSourceKey: (result) => result.source,
+      options: {
+        batchSize: 4,
+        enoughResults: 2,
+        enoughDistinctSources: 2,
+        batchTimeoutMs: 1000,
+      },
+    });
+
+    expect(attempted).toHaveLength(8);
+  });
+
   it('enforces the timeout even when a downstream client ignores abort', async () => {
     const sources = rankSources({
       sites: createSites(1),

@@ -27,6 +27,14 @@ import { yellowWords } from '@/lib/yellow';
 
 export const runtime = 'nodejs';
 
+function normalizeSearchTitle(title: string): string {
+  return title
+    .toLowerCase()
+    .replace(/[\s\u3000]+/g, '')
+    .replace(/[·•・]/g, '')
+    .replace(/[《》〈〉「」『』【】\u005b\u005d()（）]/g, '');
+}
+
 export async function GET(request: NextRequest) {
   const authInfo = getAuthInfoFromCookie(request);
   if (!authInfo || !authInfo.username) {
@@ -76,7 +84,7 @@ export async function GET(request: NextRequest) {
   const configFingerprint = `${config.SourceConfig.length}:${
     config.ConfigSubscribtion?.LastCheck || 0
   }`;
-  const cacheKey = `search:v3:${encodeURIComponent(
+  const cacheKey = `search:v4:${encodeURIComponent(
     authInfo.username
   )}:${encodeURIComponent(query.trim().toLowerCase())}:${
     includeSpecialSources ? 1 : 0
@@ -257,6 +265,9 @@ export async function GET(request: NextRequest) {
   const apiSearchPromise = progressiveSearch({
     sources: rankedSources,
     search: async (source) => searchFromApi(source.site, query),
+    isResultUseful: (result) =>
+      normalizeSearchTitle(result.title) === normalizeSearchTitle(query),
+    getResultSourceKey: (result) => result.source,
     onObservation: (source, observation) => {
       searchObservations.push({
         sourceKey: source.site.key,
@@ -266,7 +277,8 @@ export async function GET(request: NextRequest) {
     options: {
       maxCandidates: 12,
       batchSize: 4,
-      enoughResults: 12,
+      enoughResults: 3,
+      enoughDistinctSources: 3,
       batchTimeoutMs: 2500,
     },
   }).then(({ results, attempted }) => {

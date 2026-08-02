@@ -1771,6 +1771,8 @@ function PlayPageClient() {
 
   // 换源相关状态
   const [availableSources, setAvailableSources] = useState<SearchResult[]>([]);
+  const availableSourcesRef = useRef<SearchResult[]>([]);
+  const pendingAutomaticSourceSwitchReasonRef = useRef<string | null>(null);
   const [sourceSearchLoading, setSourceSearchLoading] = useState(false);
   const [sourceSearchError, setSourceSearchError] = useState<string | null>(
     null
@@ -1782,6 +1784,10 @@ function PlayPageClient() {
   const fallbackRecommendationsDraggingRef = useRef(false);
   const fallbackRecommendationsDragStartXRef = useRef(0);
   const fallbackRecommendationsDragStartScrollLeftRef = useRef(0);
+
+  useEffect(() => {
+    availableSourcesRef.current = availableSources;
+  }, [availableSources]);
 
   useEffect(() => {
     try {
@@ -5393,14 +5399,18 @@ function PlayPageClient() {
 
   const attemptAutomaticSourceSwitch = async (reason: string) => {
     if (automaticSourceSwitchRef.current || isSourceChangingRef.current) return;
-    const nextSource = availableSources.find(
+    const nextSource = availableSourcesRef.current.find(
       (source) =>
         source.source !== currentSourceRef.current &&
         Array.isArray(source.episodes) &&
         source.episodes.length > currentEpisodeIndexRef.current
     );
-    if (!nextSource) return;
+    if (!nextSource) {
+      pendingAutomaticSourceSwitchReasonRef.current = reason;
+      return;
+    }
 
+    pendingAutomaticSourceSwitchReasonRef.current = null;
     automaticSourceSwitchRef.current = true;
     if (artPlayerRef.current) {
       artPlayerRef.current.notice.show = `线路异常（${reason}），正在自动切换至 ${
@@ -5419,6 +5429,21 @@ function PlayPageClient() {
       }, 3000);
     }
   };
+
+  useEffect(() => {
+    const pendingReason = pendingAutomaticSourceSwitchReasonRef.current;
+    if (!pendingReason) return;
+
+    const hasAlternative = availableSources.some(
+      (source) =>
+        source.source !== currentSourceRef.current &&
+        Array.isArray(source.episodes) &&
+        source.episodes.length > currentEpisodeIndexRef.current
+    );
+    if (hasAlternative) {
+      void attemptAutomaticSourceSwitch(pendingReason);
+    }
+  }, [availableSources]);
 
   useEffect(() => {
     document.addEventListener('keydown', handleKeyboardShortcuts);
