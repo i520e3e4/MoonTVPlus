@@ -36,6 +36,7 @@ export async function GET(request: NextRequest) {
     const m3u8Url = searchParams.get('url');
     const source = searchParams.get('source') || '';
     const token = searchParams.get('token');
+    const proxySegments = searchParams.get('segments') === '1';
 
     // Token 鉴权：如果环境变量设置了 token，则必须验证
     const envToken =
@@ -187,7 +188,14 @@ export async function GET(request: NextRequest) {
     );
 
     // 处理 m3u8 中的相对链接
-    m3u8Content = resolveM3u8Links(m3u8Content, m3u8Url, source, origin, token || '');
+    m3u8Content = resolveM3u8Links(
+      m3u8Content,
+      m3u8Url,
+      source,
+      origin,
+      token || '',
+      proxySegments
+    );
 
     // 返回处理后的 m3u8 内容
     return new NextResponse(m3u8Content, {
@@ -212,7 +220,14 @@ export async function GET(request: NextRequest) {
  * - 子 m3u8 链接 → 指向 /api/proxy-m3u8（递归代理）
  * - ts 分片/密钥 → directplay 模式指向 /api/proxy/vod/segment（解决 CORS）
  */
-function resolveM3u8Links(m3u8Content: string, baseUrl: string, source: string, proxyOrigin: string, token: string): string {
+function resolveM3u8Links(
+  m3u8Content: string,
+  baseUrl: string,
+  source: string,
+  proxyOrigin: string,
+  token: string,
+  proxySegments = false
+): string {
   const lines = m3u8Content.split('\n');
   const resolvedLines = [];
 
@@ -242,7 +257,7 @@ function resolveM3u8Links(m3u8Content: string, baseUrl: string, source: string, 
         }
 
         // 直链播放模式：通过代理访问密钥，避免 CORS 问题
-        if (source === 'directplay') {
+        if (source === 'directplay' || proxySegments) {
           keyUri = `${proxyOrigin}/api/proxy/vod/segment?url=${encodeURIComponent(keyUri)}&source=directplay`;
         }
 
@@ -287,8 +302,9 @@ function resolveM3u8Links(m3u8Content: string, baseUrl: string, source: string, 
     const isM3u8 = url.includes('.m3u8') || isNextLineUrl;
     if (isM3u8) {
       const tokenParam = token ? `&token=${encodeURIComponent(token)}` : '';
-      url = `${proxyOrigin}/api/proxy-m3u8?url=${encodeURIComponent(url)}${source ? `&source=${encodeURIComponent(source)}` : ''}${tokenParam}`;
-    } else if (source === 'directplay') {
+      const segmentParam = proxySegments ? '&segments=1' : '';
+      url = `${proxyOrigin}/api/proxy-m3u8?url=${encodeURIComponent(url)}${source ? `&source=${encodeURIComponent(source)}` : ''}${tokenParam}${segmentParam}`;
+    } else if (source === 'directplay' || proxySegments) {
       // 直链播放模式：通过代理访问媒体分片（ts/jpeg/png 等），避免 CORS 问题
       url = `${proxyOrigin}/api/proxy/vod/segment?url=${encodeURIComponent(url)}&source=directplay`;
     }

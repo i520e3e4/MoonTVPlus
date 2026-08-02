@@ -69,8 +69,20 @@ import {
   CUSTOM_SUBTITLE_ACCEPT,
 } from '@/lib/subtitle-converter';
 import { getTMDBImageUrl } from '@/lib/tmdb.search';
-import { DanmakuFilterConfig, EpisodeFilterConfig, SearchResult } from '@/lib/types';
-import { base58Decode, getVideoResolutionFromM3u8, processImageUrl } from '@/lib/utils';
+import {
+  DanmakuFilterConfig,
+  EpisodeFilterConfig,
+  SearchResult,
+} from '@/lib/types';
+import {
+  base58Decode,
+  getVideoResolutionFromM3u8,
+  processImageUrl,
+} from '@/lib/utils';
+import {
+  calculatePlaybackSourceScore,
+  parseLoadSpeedKBps,
+} from '@/lib/playback-source-score';
 import { useEnableAIComments } from '@/hooks/useEnableAIComments';
 import { useEnableComments } from '@/hooks/useEnableComments';
 import { usePlaySync } from '@/hooks/usePlaySync';
@@ -1627,6 +1639,8 @@ function PlayPageClient() {
 
       currentXiaoyaUrlRef.current = '';
       proxyAttemptedRef.current = false;
+      segmentProxyAttemptedRef.current = false;
+      pendingProxyOriginRef.current = null;
       resumeTimeRef.current = currentPlayTime > 0 ? currentPlayTime : null;
       setVideoQualities([]);
       setVideoError(null);
@@ -1852,6 +1866,10 @@ function PlayPageClient() {
   const [corsFailedUrl, setCorsFailedUrl] = useState<string | null>(null);
   // 标记当前视频是否已经尝试过代理（防止 415→直连→失败→代理 的无限循环）
   const proxyAttemptedRef = useRef(false);
+  // 标记是否已升级为「分片也走代理」（manifest 代理成功但 ts/key 仍被 CORS 拦截时启用）
+  const segmentProxyAttemptedRef = useRef(false);
+  // 记录本次因 CORS 触发自动代理的原始地址，代理成功后再把域名写入记忆列表
+  const pendingProxyOriginRef = useRef<string | null>(null);
   const videoUrlRequestSeqRef = useRef(0);
   const lastVideoRequestKeyRef = useRef<string | null>(null);
 
@@ -1873,6 +1891,43 @@ function PlayPageClient() {
         localStorage.setItem('directplay_proxy_domains', JSON.stringify(domains));
       }
     } catch { /* ignore */ }
+  };
+
+  // 判断某个播放地址是否已经指向站内代理（同源，天然无 CORS 问题）
+  const isProxiedPlayUrl = (url: string): boolean =>
+    !!url &&
+    (url.startsWith('/api/') ||
+      url.includes('/api/proxy-m3u8') ||
+      url.includes('/api/proxy/vod/m3u8'));
+
+  // 从代理地址里还原出源站原始地址；非代理地址原样返回
+  const extractOriginalPlayUrl = (url: string): string => {
+    try {
+      if (!url || !isProxiedPlayUrl(url)) return url;
+      const query = url.split('?')[1];
+      if (!query) return url;
+      return new URLSearchParams(query).get('url') || url;
+    } catch {
+      return url;
+    }
+  };
+
+  // 统一构建 m3u8 同源代理地址。
+  // withSegments=true 时服务端会把 ts 分片与解密密钥也改写成同源代理，
+  // 用于「manifest 拿得到、分片被 CORS 拦截」的源站。
+  const buildProxyM3u8Url = (
+    originalUrl: string,
+    sourceKey?: string,
+    withSegments = false
+  ): string => {
+    const key = sourceKey || currentSourceRef.current || 'directplay';
+    const tokenParam = proxyToken
+      ? `&token=${encodeURIComponent(proxyToken)}`
+      : '';
+    const segmentParam = withSegments ? '&segments=1' : '';
+    return `/api/proxy-m3u8?url=${encodeURIComponent(
+      originalUrl
+    )}&source=${encodeURIComponent(key)}${tokenParam}${segmentParam}`;
   };
 
   // 播放器就绪状态（用于触发 usePlaySync 的事件监听器设置）
@@ -2479,17 +2534,7 @@ function PlayPageClient() {
       }
 
       const validSpeeds = successfulResults
-        .map((result) => {
-          const speedStr = result.testResult.loadSpeed;
-          if (speedStr === '未知' || speedStr === '测量中...') return 0;
-
-          const match = speedStr.match(/^([\d.]+)\s*(KB\/s|MB\/s)$/);
-          if (!match) return 0;
-
-          const value = parseFloat(match[1]);
-          const unit = match[2];
-          return unit === 'MB/s' ? value * 1024 : value;
-        })
+        .map((result) => parseLoadSpeedKBps(result.testResult.loadSpeed) ?? 0)
         .filter((speed) => speed > 0);
 
       const maxSpeed = validSpeeds.length > 0 ? Math.max(...validSpeeds) : 1024;
@@ -2500,6 +2545,9 @@ function PlayPageClient() {
 
       const minPing = validPings.length > 0 ? Math.min(...validPings) : 50;
       const maxPing = validPings.length > 0 ? Math.max(...validPings) : 1000;
+      const maxEpisodeCount = Math.max(
+        ...successfulResults.map((result) => result.source.episodes.length)
+      );
 
       const resultsWithScore = successfulResults.map((result) => ({
         ...result,
@@ -2508,7 +2556,9 @@ function PlayPageClient() {
           maxSpeed,
           minPing,
           maxPing,
-          result.source.weight ?? 0
+          result.source.weight ?? 0,
+          result.source.episodes.length,
+          maxEpisodeCount
         ),
       }));
 
@@ -2535,10 +2585,11 @@ function PlayPageClient() {
           return null;
         }
 
-        let episodeUrl =
-          source.episodes.length > 1
-            ? source.episodes[1]
-            : source.episodes[0];
+        const targetEpisodeIndex = currentEpisodeIndexRef.current;
+        if (source.episodes.length <= targetEpisodeIndex) {
+          return null;
+        }
+        let episodeUrl = source.episodes[targetEpisodeIndex];
 
         const isM3u8 = episodeUrl.toLowerCase().includes('.m3u') || !episodeUrl.toLowerCase().match(/\.(mp4|flv|webm|mkv|avi|mov)(\?.*)?$/);
         if (source.source === 'directplay' && isM3u8) {
@@ -2661,68 +2712,19 @@ function PlayPageClient() {
     maxSpeed: number,
     minPing: number,
     maxPing: number,
-    weight = 0
+    weight = 0,
+    episodeCount = 1,
+    maxEpisodeCount = 1
   ): number => {
-    let score = 0;
-
-    // 分辨率评分 (40% 权重)
-    const qualityScore = (() => {
-      switch (testResult.quality) {
-        case '4K':
-          return 100;
-        case '2K':
-          return 85;
-        case '1080p':
-          return 75;
-        case '720p':
-          return 60;
-        case '480p':
-          return 40;
-        case 'SD':
-          return 20;
-        default:
-          return 0;
-      }
-    })();
-    score += qualityScore * 0.4;
-
-    // 下载速度评分 (40% 权重) - 基于最大速度线性映射
-    const speedScore = (() => {
-      const speedStr = testResult.loadSpeed;
-      if (speedStr === '未知' || speedStr === '测量中...') return 30;
-
-      // 解析速度值
-      const match = speedStr.match(/^([\d.]+)\s*(KB\/s|MB\/s)$/);
-      if (!match) return 30;
-
-      const value = parseFloat(match[1]);
-      const unit = match[2];
-      const speedKBps = unit === 'MB/s' ? value * 1024 : value;
-
-      // 基于最大速度线性映射，最高100分
-      const speedRatio = speedKBps / maxSpeed;
-      return Math.min(100, Math.max(0, speedRatio * 100));
-    })();
-    score += speedScore * 0.4;
-
-    // 网络延迟评分 (20% 权重) - 基于延迟范围线性映射
-    const pingScore = (() => {
-      const ping = testResult.pingTime;
-      if (ping <= 0) return 0; // 无效延迟给默认分
-
-      // 如果所有延迟都相同，给满分
-      if (maxPing === minPing) return 100;
-
-      // 线性映射：最低延迟=100分，最高延迟=0分
-      const pingRatio = (maxPing - ping) / (maxPing - minPing);
-      return Math.min(100, Math.max(0, pingRatio * 100));
-    })();
-    score += pingScore * 0.2;
-
-    // 权重加分 - 直接加到总分上（0-100分）
-    score += weight;
-
-    return Math.round(score * 100) / 100; // 保留两位小数
+    return calculatePlaybackSourceScore({
+      testResult,
+      maxSpeedKBps: maxSpeed,
+      minPingMs: minPing,
+      maxPingMs: maxPing,
+      episodeCount,
+      maxEpisodeCount,
+      configuredWeight: weight,
+    });
   };
 
   const cleanupLocalPlaybackBlobUrls = () => {
@@ -3382,6 +3384,13 @@ function PlayPageClient() {
     let nextPlaybackSourceBadge: PlaybackSourceBadge = null;
     const isXiaoyaLazyPlayUrl = newUrl.startsWith('/api/xiaoya/play');
 
+    if (isEpisodeSwitchRequest) {
+      // 换集时重置代理回退状态，避免上一集的回退结果影响下一集的判定
+      proxyAttemptedRef.current = false;
+      segmentProxyAttemptedRef.current = false;
+      pendingProxyOriginRef.current = null;
+    }
+
     if (isEpisodeSwitchRequest && isXiaoyaLazyPlayUrl) {
       setVideoLoadingStage('episodeChanging');
       setIsVideoLoading(true);
@@ -3614,15 +3623,13 @@ function PlayPageClient() {
           // 如果视频源启用了代理模式,且不是本地下载,则通过代理播放
           newUrl = `/api/proxy/vod/m3u8?url=${encodeURIComponent(newUrl)}&source=${encodeURIComponent(currentSource)}`;
           console.log('使用代理模式播放:', newUrl);
+        } else if (newUrl && isM3u8 && isDirectplayDomainProxied(newUrl)) {
+          // 该 CDN 域名此前出现过 CORS 拦截并被记忆，直接走同源代理。
+          // 对直链播放与普通采集源一视同仁，避免每集都先失败一次再回退。
+          newUrl = buildProxyM3u8Url(newUrl, currentSource);
+          console.log('域名已记忆为需代理，直接使用代理模式:', newUrl);
         } else if (currentSource === 'directplay' && newUrl && isM3u8) {
-          // 直链播放模式：检查 localStorage 是否记录了该域名需要代理
-          if (isDirectplayDomainProxied(newUrl)) {
-            const tokenParam = proxyToken ? `&token=${encodeURIComponent(proxyToken)}` : '';
-            newUrl = `/api/proxy-m3u8?url=${encodeURIComponent(newUrl)}&source=directplay${tokenParam}`;
-            console.log('直链播放（域名已记忆）使用代理模式:', newUrl);
-          } else {
-            console.log('直链播放默认直连模式，不使用代理:', newUrl);
-          }
+          console.log('直链播放默认直连模式，不使用代理:', newUrl);
         } else if (!isM3u8) {
           console.log('非 m3u8 格式，豁免代理框架，直接播放原始URL:', newUrl);
         }
@@ -4585,23 +4592,29 @@ function PlayPageClient() {
         .slice(0, 12);
     };
 
+    const SEARCH_CACHE_MAX_AGE_MS = 60_000;
+
     const readSearchCache = (query: string): SearchCachePayload | null => {
       if (typeof window === 'undefined' || !query.trim()) {
         return null;
       }
 
       try {
-        const cacheKey = `search_cache_${query.trim()}${isSpecialSourcesEnabledOnDevice() ? '_special' : ''}`;
+        const cacheKey = `search_cache_v2_${query.trim()}${
+          isSpecialSourcesEnabledOnDevice() ? '_special' : ''
+        }`;
         const cached = sessionStorage.getItem(cacheKey);
         if (!cached) return null;
 
         const parsed = JSON.parse(cached) as SearchCachePayload;
         if (
           (parsed?.status === 'complete' || parsed?.status === 'partial') &&
-          Array.isArray(parsed.results)
+          Array.isArray(parsed.results) &&
+          Date.now() - (parsed.updatedAt || 0) <= SEARCH_CACHE_MAX_AGE_MS
         ) {
           return parsed;
         }
+        sessionStorage.removeItem(cacheKey);
       } catch (error) {
         console.error('[Play] 读取缓存失败:', error);
       }
@@ -4612,7 +4625,9 @@ function PlayPageClient() {
       if (typeof window === 'undefined' || !query.trim()) return;
 
       try {
-        const cacheKey = `search_cache_${query.trim()}${isSpecialSourcesEnabledOnDevice() ? '_special' : ''}`;
+        const cacheKey = `search_cache_v2_${query.trim()}${
+          isSpecialSourcesEnabledOnDevice() ? '_special' : ''
+        }`;
         const payload: SearchCachePayload = {
           status: 'complete',
           results,
@@ -5216,6 +5231,8 @@ function PlayPageClient() {
       setVideoError(null);
       setCorsFailedUrl(null);
       proxyAttemptedRef.current = false;
+      segmentProxyAttemptedRef.current = false;
+      pendingProxyOriginRef.current = null;
 
       // 记录当前播放进度（仅在同一集数切换时恢复）
       const currentPlayTime = artPlayerRef.current?.currentTime || 0;
@@ -7197,6 +7214,18 @@ function PlayPageClient() {
               hls.on(Hls.Events.MANIFEST_PARSED, () => {
                 console.log('[HLS] Manifest解析完成');
 
+                // 自动代理回退成功：把该 CDN 域名记进本地记忆，
+                // 后续同源站的剧集直接走代理，不必每集先失败一次。
+                if (pendingProxyOriginRef.current && isProxiedPlayUrl(url)) {
+                  addDirectplayProxyDomain(pendingProxyOriginRef.current);
+                  console.log(
+                    '[HLS] 代理回退成功，已记忆需代理域名:',
+                    pendingProxyOriginRef.current
+                  );
+                  pendingProxyOriginRef.current = null;
+                  setCorsFailedUrl(null);
+                }
+
                 const player = artPlayerRef.current;
                 if (video.paused && (player?.option.autoplay || player?.loading)) {
                   try {
@@ -7252,13 +7281,63 @@ function PlayPageClient() {
                         } else if (statusCode) {
                           setVideoError(`HTTP ${statusCode} 错误`);
                         } else {
-                          // CORS 错误或其他网络错误
-                          // 如果是直链直连模式（URL 不含代理前缀），记录原始 URL 以便用户一键启用代理
-                          if (currentSourceRef.current === 'directplay' && !url.includes('/api/proxy-m3u8') && !url.includes('/api/proxy/vod/m3u8')) {
+                          // 无 HTTP 状态码 = 请求在浏览器层面就被拦下了：
+                          // 绝大多数是源站 m3u8 缺少 Access-Control-Allow-Origin（CORS），
+                          // 少数是 DNS / TLS / 混合内容失败。两种情况都可以靠同源代理绕过。
+                          if (
+                            !isProxiedPlayUrl(url) &&
+                            !proxyAttemptedRef.current
+                          ) {
+                            proxyAttemptedRef.current = true;
+                            pendingProxyOriginRef.current = url;
+                            const proxyUrl = buildProxyM3u8Url(
+                              url,
+                              currentSourceRef.current || 'directplay'
+                            );
+                            console.warn(
+                              '[HLS] 疑似跨域拦截，自动切换同源代理重试:',
+                              proxyUrl
+                            );
+                            setCorsFailedUrl(url);
+                            setVideoError(null);
+                            setIsVideoLoading(true);
+                            setVideoUrl(proxyUrl);
+                            return;
+                          }
+                          // 已经是代理地址仍然失败：保留原始地址供用户手动重试/换源
+                          if (!isProxiedPlayUrl(url)) {
                             setCorsFailedUrl(url);
                           }
                           setVideoError('无法访问视频源（可能是跨域限制或访问被拒绝）');
                         }
+                        return;
+                      }
+                      // 分片 / 密钥 / 子播放列表被拦截：manifest 能取到但 ts 取不到，
+                      // 说明源站只给 m3u8 放行了 CORS。升级为「分片也走代理」再试一次。
+                      if (
+                        (data.details === 'fragLoadError' ||
+                          data.details === 'keyLoadError' ||
+                          data.details === 'levelLoadError' ||
+                          data.details === 'audioTrackLoadError') &&
+                        !(data.response?.code || data.response?.status) &&
+                        !segmentProxyAttemptedRef.current
+                      ) {
+                        segmentProxyAttemptedRef.current = true;
+                        const originalUrl = extractOriginalPlayUrl(url);
+                        const fullProxyUrl = buildProxyM3u8Url(
+                          originalUrl,
+                          currentSourceRef.current || 'directplay',
+                          true
+                        );
+                        console.warn(
+                          `[HLS] ${data.details} 无状态码，升级为分片代理重试:`,
+                          fullProxyUrl
+                        );
+                        pendingProxyOriginRef.current = originalUrl;
+                        hls.destroy();
+                        setVideoError(null);
+                        setIsVideoLoading(true);
+                        setVideoUrl(fullProxyUrl);
                         return;
                       }
                       // 检查其他 HTTP 错误状态码
@@ -9946,28 +10025,41 @@ function PlayPageClient() {
                             >
                               重试
                             </button>
-                            {/* 直链播放 CORS 失败时，显示"使用代理播放"按钮 */}
-                            {!proxyAttemptedRef.current && (corsFailedUrl || (isDirectPlay && videoUrl && !videoUrl.includes('/api/proxy-m3u8'))) && (
-                              <button
-                                onClick={() => {
-                                  const originalUrl = corsFailedUrl || videoUrl;
-                                  // 记忆域名到 localStorage
-                                  addDirectplayProxyDomain(originalUrl);
-                                  // 构建代理 URL
-                                  const tokenParam = proxyToken ? `&token=${encodeURIComponent(proxyToken)}` : '';
-                                  const proxyUrl = `/api/proxy-m3u8?url=${encodeURIComponent(originalUrl)}&source=directplay${tokenParam}`;
-                                  // 清除错误状态并重新播放
-                                  setVideoError(null);
-                                  setCorsFailedUrl(null);
-                                  setIsVideoLoading(true);
-                                  proxyAttemptedRef.current = true;
-                                  setVideoUrl(proxyUrl);
-                                }}
-                                className='mt-4 ml-3 px-6 py-2 bg-gradient-to-r from-blue-500 to-indigo-600 text-white rounded-lg hover:from-blue-600 hover:to-indigo-700 transition-all duration-200'
-                              >
-                                使用代理播放
-                              </button>
-                            )}
+                            {/* 跨域/直连失败时，显示"使用代理播放"按钮（直链与采集源通用） */}
+                            {!segmentProxyAttemptedRef.current &&
+                              (corsFailedUrl ||
+                                (videoUrl && !isProxiedPlayUrl(videoUrl))) && (
+                                <button
+                                  onClick={() => {
+                                    const originalUrl = extractOriginalPlayUrl(
+                                      corsFailedUrl || videoUrl
+                                    );
+                                    // 记忆域名到 localStorage，后续同域名直接走代理
+                                    addDirectplayProxyDomain(originalUrl);
+                                    // 手动触发时直接用「分片也代理」的最强模式，
+                                    // 因为自动回退（仅代理 manifest）多半已经试过一轮了
+                                    const useSegments =
+                                      proxyAttemptedRef.current;
+                                    const proxyUrl = buildProxyM3u8Url(
+                                      originalUrl,
+                                      currentSourceRef.current || 'directplay',
+                                      useSegments
+                                    );
+                                    // 清除错误状态并重新播放
+                                    setVideoError(null);
+                                    setCorsFailedUrl(null);
+                                    setIsVideoLoading(true);
+                                    proxyAttemptedRef.current = true;
+                                    if (useSegments) {
+                                      segmentProxyAttemptedRef.current = true;
+                                    }
+                                    setVideoUrl(proxyUrl);
+                                  }}
+                                  className='mt-4 ml-3 px-6 py-2 bg-gradient-to-r from-blue-500 to-indigo-600 text-white rounded-lg hover:from-blue-600 hover:to-indigo-700 transition-all duration-200'
+                                >
+                                  使用代理播放
+                                </button>
+                              )}
                           </div>
                         </>
                       ) : (

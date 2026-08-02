@@ -73,7 +73,15 @@ export const API_CONFIG = {
 
 // 在模块加载时根据环境决定配置来源
 let cachedConfig: AdminConfig;
+let cachedConfigLoadedAt = 0;
 let configInitPromise: Promise<AdminConfig> | null = null;
+const CONFIG_CACHE_TTL_MS = 60_000;
+
+function updateCachedConfig(config: AdminConfig): AdminConfig {
+  cachedConfig = config;
+  cachedConfigLoadedAt = Date.now();
+  return config;
+}
 
 // 从配置文件补充管理员配置
 export function refineConfig(adminConfig: AdminConfig): AdminConfig {
@@ -411,9 +419,13 @@ async function getInitConfig(
 
 export async function getConfig(): Promise<AdminConfig> {
   // 直接使用内存缓存
-  if (cachedConfig) {
+  if (
+    cachedConfig &&
+    Date.now() - cachedConfigLoadedAt <= CONFIG_CACHE_TTL_MS
+  ) {
     return cachedConfig;
   }
+  cachedConfig = null as any;
 
   // 如果正在初始化，等待初始化完成
   if (configInitPromise) {
@@ -428,7 +440,7 @@ export async function getConfig(): Promise<AdminConfig> {
     if (storageType === 'localstorage') {
       console.log('localStorage 模式：从环境变量初始化配置');
       const adminConfig = await getInitConfig('');
-      cachedConfig = configSelfCheck(adminConfig);
+      updateCachedConfig(configSelfCheck(adminConfig));
       configInitPromise = null;
       return cachedConfig;
     }
@@ -464,7 +476,7 @@ export async function getConfig(): Promise<AdminConfig> {
       !adminConfig.EmbyConfig.Sources;
 
     adminConfig = configSelfCheck(adminConfig);
-    cachedConfig = adminConfig;
+    updateCachedConfig(adminConfig);
 
     // 如果进行了Emby配置迁移，保存到数据库
     if (!dbReadFailed && needsEmbyMigration) {
@@ -491,7 +503,7 @@ export async function getConfig(): Promise<AdminConfig> {
           // 迁移完成后，清空配置中的用户列表并保存
           adminConfig.UserConfig.Users = [];
           await db.saveAdminConfig(adminConfig);
-          cachedConfig = adminConfig;
+          updateCachedConfig(adminConfig);
           console.log('用户自动迁移完成');
         }
       } catch (error) {
@@ -1064,7 +1076,7 @@ export async function resetConfig() {
     originConfig.ConfigFile,
     originConfig.ConfigSubscribtion
   );
-  cachedConfig = adminConfig;
+  updateCachedConfig(adminConfig);
   await db.saveAdminConfig(adminConfig);
 
   return;
@@ -1151,10 +1163,11 @@ export async function getAvailableApiSites(
 }
 
 export async function setCachedConfig(config: AdminConfig) {
-  cachedConfig = config;
+  updateCachedConfig(config);
 }
 
 export async function clearConfigCache() {
   cachedConfig = null as any;
+  cachedConfigLoadedAt = 0;
   configInitPromise = null;
 }

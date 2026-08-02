@@ -27,6 +27,15 @@ import { yellowWords } from '@/lib/yellow';
 
 export const runtime = 'nodejs';
 
+function stableConfigHash(value: string): string {
+  let hash = 2166136261;
+  for (let index = 0; index < value.length; index += 1) {
+    hash ^= value.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return (hash >>> 0).toString(36);
+}
+
 function normalizeSearchTitle(title: string): string {
   return title
     .toLowerCase()
@@ -81,10 +90,17 @@ export async function GET(request: NextRequest) {
     hasFeaturePermission(authInfo.username, 'private_library'),
     hasFeaturePermission(authInfo.username, 'emby'),
   ]);
-  const configFingerprint = `${config.SourceConfig.length}:${
-    config.ConfigSubscribtion?.LastCheck || 0
-  }`;
-  const cacheKey = `search:v4:${encodeURIComponent(
+  const configFingerprint = stableConfigHash(
+    JSON.stringify(
+      config.SourceConfig.map((source) => [
+        source.key,
+        source.api,
+        Boolean(source.disabled),
+        Boolean(source.proxyMode),
+      ])
+    )
+  );
+  const cacheKey = `search:v6:${encodeURIComponent(
     authInfo.username
   )}:${encodeURIComponent(query.trim().toLowerCase())}:${
     includeSpecialSources ? 1 : 0
@@ -258,7 +274,7 @@ export async function GET(request: NextRequest) {
     preferenceByKey,
     configuredWeightByKey: weightMap,
     query,
-    maxCandidates: 12,
+    maxCandidates: apiSites.length,
   });
   const searchObservations: SearchObservation[] = [];
   let attemptedSourceCount = 0;
@@ -275,10 +291,10 @@ export async function GET(request: NextRequest) {
       });
     },
     options: {
-      maxCandidates: 12,
-      batchSize: 4,
-      enoughResults: 3,
-      enoughDistinctSources: 3,
+      maxCandidates: apiSites.length,
+      batchSize: 8,
+      enoughResults: 4,
+      enoughDistinctSources: 4,
       batchTimeoutMs: 2500,
     },
   }).then(({ results, attempted }) => {
@@ -405,9 +421,7 @@ export async function GET(request: NextRequest) {
       { results: flattenedResults },
       {
         headers: {
-          'Cache-Control': `public, max-age=${cacheTime}, s-maxage=${cacheTime}`,
-          'CDN-Cache-Control': `public, s-maxage=${cacheTime}`,
-          'Vercel-CDN-Cache-Control': `public, s-maxage=${cacheTime}`,
+          'Cache-Control': 'private, max-age=60',
           'Netlify-Vary': 'query',
           'X-MoonTV-Sources-Attempted': String(attemptedSourceCount),
           'X-MoonTV-Cache': 'miss',
