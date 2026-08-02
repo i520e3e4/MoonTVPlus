@@ -1,0 +1,34 @@
+name: Cloudflare Runtime Diagnostic
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  tail:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Capture one production request
+        shell: bash
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          npx --yes wrangler@4.60.0 tail moontv-plus --format pretty > worker-tail.log 2>&1 &
+          TAIL_PID=$!
+          sleep 8
+          curl --silent --show-error --output response.html --write-out 'HTTP %{http_code}\n' https://newmoon.686423.xyz/login || true
+          sleep 8
+          kill "$TAIL_PID" 2>/dev/null || true
+          wait "$TAIL_PID" 2>/dev/null || true
+          cat worker-tail.log
