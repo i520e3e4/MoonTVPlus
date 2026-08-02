@@ -80,6 +80,13 @@ jobs:
         run: |
           STORAGE_TYPE="${{ secrets.NEXT_PUBLIC_STORAGE_TYPE }}"
 
+          # The checked-in Worker configuration is authoritative when it
+          # explicitly selects D1. This also keeps deployments functional when
+          # the optional repository secret is missing or uses legacy casing.
+          if grep -q '^NEXT_PUBLIC_STORAGE_TYPE = "d1"' wrangler.toml; then
+            STORAGE_TYPE="d1"
+          fi
+
           if [ "$STORAGE_TYPE" != "d1" ]; then
             echo "Storage type is not d1 (current: $STORAGE_TYPE), removing D1 database configuration"
             # Remove the entire [[d1_databases]] section including the comment
@@ -90,8 +97,10 @@ jobs:
           elif [ -n "${{ secrets.D1_DATABASE_ID }}" ]; then
             sed -i 's/REPLACE_WITH_YOUR_D1_DATABASE_ID/${{ secrets.D1_DATABASE_ID }}/g' wrangler.toml
             echo "D1 Database ID replaced successfully"
+          elif grep -Eq '^database_id = "[0-9a-fA-F-]{36}"' wrangler.toml; then
+            echo "Using the existing D1 Database ID from wrangler.toml"
           else
-            echo "⚠️ Storage type is d1 but D1_DATABASE_ID secret not set"
+            echo "⚠️ Storage type is d1 but no valid D1 database ID is configured"
             exit 1
           fi
 
