@@ -28,6 +28,8 @@ interface SourceRow {
   healthScore: number;
   p50LatencyMs: number;
   p95LatencyMs: number;
+  searchSamples: number;
+  playbackSamples: number;
   consecutiveFailures: number;
   averageStartupMs: number;
   bufferingCount: number;
@@ -82,8 +84,18 @@ export default function OperationsOverview() {
   }, [filter, sources]);
 
   const recheckWeakSources = async () => {
-    const keys = sources
-      .filter((source) => source.healthScore < 70 || source.circuitOpen)
+    const keys = [...sources]
+      .filter(
+        (source) =>
+          source.searchSamples === 0 ||
+          source.healthScore < 70 ||
+          source.circuitOpen
+      )
+      .sort((a, b) => {
+        const aUntested = a.searchSamples === 0 ? 0 : 1;
+        const bUntested = b.searchSamples === 0 ? 0 : 1;
+        return aUntested - bUntested || a.healthScore - b.healthScore;
+      })
       .slice(0, 12)
       .map((source) => source.key);
     if (keys.length === 0) return;
@@ -137,7 +149,9 @@ export default function OperationsOverview() {
             <Activity size={15} />
             Operations center
           </div>
-          <h2 className='mt-1 text-xl font-semibold text-white'>运行概览与资源健康</h2>
+          <h2 className='mt-1 text-xl font-semibold text-white'>
+            运行概览与资源健康
+          </h2>
           <p className='mt-1 text-sm text-slate-400'>
             搜索、播放、熔断和首帧指标均来自匿名聚合事件。
           </p>
@@ -155,7 +169,7 @@ export default function OperationsOverview() {
             className='flex items-center gap-2 rounded-lg bg-cyan-400 px-3 py-2 text-sm font-medium text-slate-950 disabled:opacity-50'
           >
             <RefreshCw size={15} className={rechecking ? 'animate-spin' : ''} />
-            检测低分源
+            检测待测/低分源
           </button>
         </div>
       </div>
@@ -202,7 +216,10 @@ export default function OperationsOverview() {
             </thead>
             <tbody className='divide-y divide-white/5'>
               {visibleSources.map((source) => (
-                <tr key={source.key} className='text-slate-300 hover:bg-white/5'>
+                <tr
+                  key={source.key}
+                  className='text-slate-300 hover:bg-white/5'
+                >
                   <td className='px-4 py-3'>
                     <div className='font-medium text-white'>{source.name}</div>
                     <div className='text-xs text-slate-500'>{source.key}</div>
@@ -239,7 +256,13 @@ export default function OperationsOverview() {
                           : 'bg-emerald-500/15 text-emerald-300'
                       }`}
                     >
-                      {source.circuitOpen ? '熔断' : '在线'}
+                      {source.circuitOpen
+                        ? '熔断'
+                        : source.searchSamples === 0
+                        ? '未检测'
+                        : source.playbackSamples === 0
+                        ? '仅搜索'
+                        : '有播放数据'}
                     </span>
                   </td>
                 </tr>
@@ -251,4 +274,3 @@ export default function OperationsOverview() {
     </section>
   );
 }
-

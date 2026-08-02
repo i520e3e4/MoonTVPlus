@@ -70,6 +70,38 @@ describe('source selection', () => {
     expect(reliable).toBeGreaterThan(75);
   });
 
+  it('does not rate a search-only source as proven high quality', () => {
+    const score = calculateHealthScore({
+      searchSuccessCount: 100,
+      searchFailureCount: 0,
+      playbackSuccessCount: 0,
+      playbackFailureCount: 0,
+      p50LatencyMs: 100,
+      p95LatencyMs: 200,
+    });
+
+    expect(score).toBeLessThanOrEqual(64);
+  });
+
+  it('penalizes slow startup even when request latency is low', () => {
+    const fastStartup = calculateHealthScore({
+      searchSuccessCount: 20,
+      playbackSuccessCount: 20,
+      p50LatencyMs: 200,
+      p95LatencyMs: 500,
+      averageStartupMs: 1200,
+    });
+    const slowStartup = calculateHealthScore({
+      searchSuccessCount: 20,
+      playbackSuccessCount: 20,
+      p50LatencyMs: 200,
+      p95LatencyMs: 500,
+      averageStartupMs: 12000,
+    });
+
+    expect(fastStartup).toBeGreaterThan(slowStartup);
+  });
+
   it('searches in waves and stops when enough results are found', async () => {
     const sources = rankSources({
       sites: createSites(12),

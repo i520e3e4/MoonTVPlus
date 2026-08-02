@@ -6,7 +6,7 @@ import {
   UserSourcePreference,
 } from './source-intelligence.types';
 
-const DEFAULT_HEALTH_SCORE = 60;
+const DEFAULT_HEALTH_SCORE = 55;
 const MAX_PREFERENCE_BONUS = 15;
 
 function clamp(value: number, min: number, max: number): number {
@@ -32,34 +32,44 @@ export function calculateHealthScore(
   const playbackFailure = health.playbackFailureCount || 0;
   const searchTotal = searchSuccess + searchFailure;
   const playbackTotal = playbackSuccess + playbackFailure;
-  const searchRate = searchTotal > 0 ? searchSuccess / searchTotal : 0.6;
-  const playbackRate =
-    playbackTotal > 0 ? playbackSuccess / playbackTotal : 0.7;
+  // Bayesian priors keep tiny samples from looking deceptively perfect.
+  const searchRate = (searchSuccess + 3) / (searchTotal + 5);
+  const playbackRate = (playbackSuccess + 2) / (playbackTotal + 4);
   const p50 = health.p50LatencyMs || 1500;
   const p95 = health.p95LatencyMs || 4000;
-  const latencyScore =
-    1 - clamp((p50 * 0.6 + p95 * 0.4 - 500) / 7500, 0, 1);
+  const latencyScore = 1 - clamp((p50 * 0.6 + p95 * 0.4 - 500) / 7500, 0, 1);
   const timeoutPenalty = clamp((health.timeoutCount || 0) / 20, 0, 1);
   const bufferingPenalty = clamp((health.bufferingCount || 0) / 30, 0, 1);
   const adPenalty = clamp((health.adSegments || 0) / 50, 0, 1);
+  const startupScore = health.averageStartupMs
+    ? 1 - clamp((health.averageStartupMs - 1200) / 10800, 0, 1)
+    : 0.5;
   const circuitPenalty =
     health.circuitOpenUntil && health.circuitOpenUntil > now ? 1 : 0;
 
-  return Math.round(
-    clamp(
-      (searchRate * 0.3 +
-        playbackRate * 0.3 +
-        latencyScore * 0.2 +
-        (1 - timeoutPenalty) * 0.08 +
-        (1 - bufferingPenalty) * 0.07 +
-        (1 - adPenalty) * 0.05) *
-        100 -
-        circuitPenalty * 50,
-      0,
-      100
-    ) *
-      100
-  ) / 100;
+  const rawScore =
+    (searchRate * 0.2 +
+      playbackRate * 0.35 +
+      latencyScore * 0.15 +
+      startupScore * 0.15 +
+      (1 - timeoutPenalty) * 0.05 +
+      (1 - bufferingPenalty) * 0.07 +
+      (1 - adPenalty) * 0.03) *
+      100 -
+    circuitPenalty * 50;
+
+  // Search-only sources are candidates, not proven high-quality playback
+  // sources. Require real playback evidence before allowing a high score.
+  const evidenceCap =
+    playbackTotal === 0
+      ? 64
+      : playbackTotal === 1
+      ? 72
+      : playbackTotal < 3
+      ? 80
+      : 100;
+
+  return Math.round(clamp(Math.min(rawScore, evidenceCap), 0, 100) * 100) / 100;
 }
 
 export function rankSources(params: {
@@ -132,10 +142,7 @@ export function rankSources(params: {
   const explorationRoll =
     stableHash(`${query}:${now.toString().slice(0, -6)}`) % 10;
   const shouldExplore = targetCount >= 4 && explorationRoll === 0;
-  const exploitationCount = Math.max(
-    1,
-    targetCount - (shouldExplore ? 1 : 0)
-  );
+  const exploitationCount = Math.max(1, targetCount - (shouldExplore ? 1 : 0));
   const selected = available.slice(0, exploitationCount);
   const explorationPool = available.slice(exploitationCount);
 

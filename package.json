@@ -16,6 +16,7 @@
     "test:watch": "jest --watch",
     "test": "jest",
     "test:e2e": "playwright test",
+    "audit:sources": "node scripts/audit-video-sources.mjs",
     "format": "prettier -w .",
     "format:check": "prettier -c .",
     "gen:manifest": "node scripts/generate-manifest.js",

@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any,no-console */
 
-import { NextRequest, NextResponse } from 'next/server';
 import { getCloudflareContext } from '@opennextjs/cloudflare';
+import { NextRequest, NextResponse } from 'next/server';
 
 import { getAuthInfoFromCookie } from '@/lib/auth';
 import { getAvailableApiSites, getCacheTime, getConfig } from '@/lib/config';
@@ -9,23 +9,20 @@ import { searchFromApi } from '@/lib/downstream';
 import { getProxyToken } from '@/lib/emby-token';
 import { hasFeaturePermission } from '@/lib/permissions';
 import { checkRateLimit, getClientIp } from '@/lib/rate-limit';
-import {
-  getRuntimeCacheJson,
-  setRuntimeCacheJson,
-} from '@/lib/runtime-cache';
+import { getRuntimeCacheJson, setRuntimeCacheJson } from '@/lib/runtime-cache';
 import {
   getSourceHealthMap,
   getUserSourcePreferenceMap,
   recordSearchObservations,
   SearchObservation,
 } from '@/lib/source-health-store';
-import { progressiveSearch, rankSources } from '@/lib/source-selection';
 import {
   executeSavedSourceScript,
   listEnabledSourceScripts,
   normalizeScriptSearchResults,
   normalizeScriptSources,
 } from '@/lib/source-script';
+import { progressiveSearch, rankSources } from '@/lib/source-selection';
 import { yellowWords } from '@/lib/yellow';
 
 export const runtime = 'nodejs';
@@ -96,7 +93,7 @@ export async function GET(request: NextRequest) {
   }
   // 创建权重映射表
   const weightMap = new Map<string, number>();
-  config.SourceConfig.forEach(source => {
+  config.SourceConfig.forEach((source) => {
     weightMap.set(source.key, source.weight ?? 0);
   });
 
@@ -115,7 +112,10 @@ export async function GET(request: NextRequest) {
   const embySources = canAccessEmby ? Array.from(embySourcesMap.values()) : [];
 
   console.log('[Search] Emby sources count:', embySources.length);
-  console.log('[Search] Emby sources:', embySources.map(s => ({ key: s.config.key, name: s.config.name })));
+  console.log(
+    '[Search] Emby sources:',
+    embySources.map((s) => ({ key: s.config.key, name: s.config.name }))
+  );
 
   // 获取代理 token（用于图片代理）
   const proxyToken = await getProxyToken(request);
@@ -134,8 +134,10 @@ export async function GET(request: NextRequest) {
           });
 
           // 如果只有一个Emby源，保持旧格式（向后兼容）
-          const sourceValue = embySources.length === 1 ? 'emby' : `emby_${embyConfig.key}`;
-          const sourceName = embySources.length === 1 ? 'Emby' : embyConfig.name;
+          const sourceValue =
+            embySources.length === 1 ? 'emby' : `emby_${embyConfig.key}`;
+          const sourceName =
+            embySources.length === 1 ? 'Emby' : embyConfig.name;
 
           return searchResult.Items.map((item) => ({
             id: item.Id,
@@ -143,7 +145,12 @@ export async function GET(request: NextRequest) {
             source_name: sourceName,
             weight: weightMap.get(sourceValue) ?? 0,
             title: item.Name,
-            poster: client.getImageUrl(item.Id, 'Primary', undefined, client.isProxyEnabled() ? proxyToken || undefined : undefined),
+            poster: client.getImageUrl(
+              item.Id,
+              'Primary',
+              undefined,
+              client.isProxyEnabled() ? proxyToken || undefined : undefined
+            ),
             episodes: [],
             episodes_titles: [],
             year: item.ProductionYear?.toString() || '',
@@ -170,7 +177,9 @@ export async function GET(request: NextRequest) {
     ? Promise.race([
         (async () => {
           try {
-            const { getCachedMetaInfo, setCachedMetaInfo } = await import('@/lib/openlist-cache');
+            const { getCachedMetaInfo, setCachedMetaInfo } = await import(
+              '@/lib/openlist-cache'
+            );
             const { getTMDBImageUrl } = await import('@/lib/tmdb.search');
             const { db } = await import('@/lib/db');
 
@@ -189,8 +198,12 @@ export async function GET(request: NextRequest) {
             if (metaInfo && metaInfo.folders) {
               return Object.entries(metaInfo.folders)
                 .filter(([folderName, info]: [string, any]) => {
-                  const matchFolder = folderName.toLowerCase().includes(query.toLowerCase());
-                  const matchTitle = info.title.toLowerCase().includes(query.toLowerCase());
+                  const matchFolder = folderName
+                    .toLowerCase()
+                    .includes(query.toLowerCase());
+                  const matchTitle = info.title
+                    .toLowerCase()
+                    .includes(query.toLowerCase());
                   return matchFolder || matchTitle;
                 })
                 .map(([folderName, info]: [string, any]) => ({
@@ -224,8 +237,9 @@ export async function GET(request: NextRequest) {
     : Promise.resolve([]);
 
   // Cloudflare Free allows only 50 external subrequests per invocation.
-  // Rank every configured source and return the first four-source wave.
-  // Stable exploration rotates data-poor sources into roughly 10% of queries.
+  // Rank every configured source and search progressively in four-source waves.
+  // Stop as soon as a useful result set is available, but allow two fallback
+  // waves when the best-ranked sources are stale, empty or slow.
   const [healthByKey, preferenceByKey] = await Promise.all([
     getSourceHealthMap(apiSites.map((site) => site.key)),
     getUserSourcePreferenceMap(authInfo.username),
@@ -236,7 +250,7 @@ export async function GET(request: NextRequest) {
     preferenceByKey,
     configuredWeightByKey: weightMap,
     query,
-    maxCandidates: 4,
+    maxCandidates: 12,
   });
   const searchObservations: SearchObservation[] = [];
   let attemptedSourceCount = 0;
@@ -250,10 +264,10 @@ export async function GET(request: NextRequest) {
       });
     },
     options: {
-      maxCandidates: 4,
+      maxCandidates: 12,
       batchSize: 4,
-      enoughResults: 4,
-      batchTimeoutMs: 1000,
+      enoughResults: 12,
+      batchTimeoutMs: 2500,
     },
   }).then(({ results, attempted }) => {
     attemptedSourceCount = attempted.length;
@@ -336,11 +350,16 @@ export async function GET(request: NextRequest) {
     const apiResultsFlat = Array.isArray(apiResults) ? apiResults : [];
     const scriptResultsFlat = scriptResults.filter(Array.isArray).flat();
 
-    let flattenedResults = [...openlistResults, ...embyResults, ...apiResultsFlat, ...scriptResultsFlat];
+    let flattenedResults = [
+      ...openlistResults,
+      ...embyResults,
+      ...apiResultsFlat,
+      ...scriptResultsFlat,
+    ];
 
     flattenedResults = flattenedResults.map((result) => ({
       ...result,
-      weight: result.weight ?? (weightMap.get(result.source) ?? 0),
+      weight: result.weight ?? weightMap.get(result.source) ?? 0,
     }));
 
     if (!config.SiteConfig.DisableYellowFilter) {

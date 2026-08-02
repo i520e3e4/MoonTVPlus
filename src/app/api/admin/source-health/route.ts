@@ -24,6 +24,11 @@ export async function GET(request: NextRequest) {
         healthScore: health?.healthScore ?? 60,
         p50LatencyMs: health?.p50LatencyMs ?? 0,
         p95LatencyMs: health?.p95LatencyMs ?? 0,
+        searchSamples:
+          (health?.searchSuccessCount ?? 0) + (health?.searchFailureCount ?? 0),
+        playbackSamples:
+          (health?.playbackSuccessCount ?? 0) +
+          (health?.playbackFailureCount ?? 0),
         searchSuccessCount: health?.searchSuccessCount ?? 0,
         searchFailureCount: health?.searchFailureCount ?? 0,
         playbackSuccessCount: health?.playbackSuccessCount ?? 0,
@@ -46,4 +51,3 @@ export async function GET(request: NextRequest) {
     { headers: { 'Cache-Control': 'no-store' } }
   );
 }
-
