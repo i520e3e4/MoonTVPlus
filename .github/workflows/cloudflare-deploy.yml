@@ -200,3 +200,19 @@ jobs:
           command: deploy
           packageManager: pnpm
           wranglerVersion: "4.60.0"
+
+      - name: Verify production runtime
+        shell: bash
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          wrangler tail moontv-plus --format pretty > worker-tail.log 2>&1 &
+          TAIL_PID=$!
+          sleep 8
+          HTTP_STATUS=$(curl --silent --show-error --output response.html --write-out '%{http_code}' https://newmoon.686423.xyz/login || true)
+          sleep 8
+          kill "$TAIL_PID" 2>/dev/null || true
+          wait "$TAIL_PID" 2>/dev/null || true
+          cat worker-tail.log
+          test "$HTTP_STATUS" = "200"
