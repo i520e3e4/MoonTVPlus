@@ -209,9 +209,13 @@ jobs:
         run: |
           wrangler tail moontv-plus --format pretty > worker-tail.log 2>&1 &
           TAIL_PID=$!
-          sleep 8
+          for _ in $(seq 1 30); do
+            grep -q 'Connected to moontv-plus' worker-tail.log && break
+            sleep 1
+          done
           HTTP_STATUS=$(curl --silent --show-error --output response.html --write-out '%{http_code}' https://newmoon.686423.xyz/login || true)
-          sleep 8
+          echo "Production HTTP status: $HTTP_STATUS"
+          sleep 10
           kill "$TAIL_PID" 2>/dev/null || true
           wait "$TAIL_PID" 2>/dev/null || true
           cat worker-tail.log
