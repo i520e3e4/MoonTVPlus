@@ -198,23 +198,3 @@ jobs:
           command: deploy
           packageManager: pnpm
           wranglerVersion: "4.60.0"
-
-      - name: Verify production runtime
-        shell: bash
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-        run: |
-          wrangler tail moontv-plus --format pretty > worker-tail.log 2>&1 &
-          TAIL_PID=$!
-          for _ in $(seq 1 30); do
-            grep -q 'Connected to moontv-plus' worker-tail.log && break
-            sleep 1
-          done
-          echo "TAIL_READY"
-          # Keep the tail open long enough for an external smoke request. The
-          # GitHub runner itself can be challenged by Cloudflare bot controls.
-          sleep 45
-          kill "$TAIL_PID" 2>/dev/null || true
-          wait "$TAIL_PID" 2>/dev/null || true
-          cat worker-tail.log
