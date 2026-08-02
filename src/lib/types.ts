@@ -238,7 +238,9 @@ export interface IStorage {
     userName: string,
     subscription: PushSubscriptionRecord
   ): Promise<void>;
-  getEnabledPushSubscriptions?(userName: string): Promise<PushSubscriptionRecord[]>;
+  getEnabledPushSubscriptions?(
+    userName: string
+  ): Promise<PushSubscriptionRecord[]>;
   deletePushSubscriptionByEndpoint?(
     userName: string,
     endpoint: string
@@ -265,9 +267,7 @@ export interface IStorage {
   getTelegramBindSession?(
     code: string
   ): Promise<TelegramBindSessionRecord | null>;
-  upsertTelegramBindSession?(
-    session: TelegramBindSessionRecord
-  ): Promise<void>;
+  upsertTelegramBindSession?(session: TelegramBindSessionRecord): Promise<void>;
   markTelegramBindSessionUsed?(code: string): Promise<void>;
 
   // TVBox订阅token相关
@@ -286,6 +286,8 @@ export interface SearchResult {
   source: string;
   source_name: string;
   weight?: number; // 播放源权重（来自后台配置，用于排序和优选评分）
+  sourceHealthScore?: number; // 服务端根据历史搜索/播放表现计算的健康度
+  sourcePreferenceScore?: number; // 当前用户的历史播放偏好
   class?: string;
   year: string;
   desc?: string;
@@ -294,18 +296,20 @@ export interface SearchResult {
   vod_remarks?: string; // 视频备注信息（如"全80集"、"更新至25集"等）
   vod_total?: number; // 总集数
   proxyMode?: boolean; // 代理模式：启用后由服务器代理m3u8和ts分片
-  subtitles?: Array<Array<{
-    label: string;
-    url: string;
-    fallbackUrl?: string;
-    fallbackFormat?: string;
-    language?: string;
-    format?: string; // 实际加载格式，如 vtt / ass / ssa
-    sourceFormat?: string; // Emby 返回的原始字幕格式
-    codec?: string;
-    isExternal?: boolean;
-    renderMode?: 'native' | 'jassub';
-  }>>; // 字幕列表（按集数索引）
+  subtitles?: Array<
+    Array<{
+      label: string;
+      url: string;
+      fallbackUrl?: string;
+      fallbackFormat?: string;
+      language?: string;
+      format?: string; // 实际加载格式，如 vtt / ass / ssa
+      sourceFormat?: string; // Emby 返回的原始字幕格式
+      codec?: string;
+      isExternal?: boolean;
+      renderMode?: 'native' | 'jassub';
+    }>
+  >; // 字幕列表（按集数索引）
   tmdb_id?: number; // TMDB ID
   rating?: number; // 评分
   initialEpisodeIndex?: number; // 初始集数索引（用于小雅源从文件点击进入时指定集数）
@@ -364,7 +368,6 @@ export interface EpisodeFilterConfig {
   rules: EpisodeFilterRule[]; // 过滤规则列表
   reverseMode?: boolean; // 反向模式：开启后仅显示符合规则的集数
 }
-
 
 export interface PushSubscriptionRecord {
   id: string;

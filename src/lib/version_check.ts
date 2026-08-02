@@ -2,7 +2,7 @@
 
 'use client';
 
-import { CURRENT_VERSION } from "@/lib/version";
+import { CURRENT_VERSION } from '@/lib/version';
 
 // 版本检查结果枚举
 export enum UpdateStatus {
@@ -29,9 +29,12 @@ export async function checkForUpdates(): Promise<UpdateStatus> {
     }
 
     // 如果主要URL失败，尝试备用URL
-    const backupVersion = await fetchVersionFromUrl(VERSION_CHECK_URLS[1]);
-    if (backupVersion) {
-      return compareVersions(backupVersion);
+    const backupUrl = VERSION_CHECK_URLS[1];
+    if (backupUrl) {
+      const backupVersion = await fetchVersionFromUrl(backupUrl);
+      if (backupVersion) {
+        return compareVersions(backupVersion);
+      }
     }
 
     // 如果两个URL都失败，返回获取失败状态

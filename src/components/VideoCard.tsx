@@ -13,6 +13,7 @@ import {
   Youtube,
 } from 'lucide-react';
 import Image from 'next/image';
+import dynamic from 'next/dynamic';
 import { useRouter } from 'next/navigation';
 import React, {
   forwardRef,
@@ -38,7 +39,6 @@ import type { TMDBVideoItem } from '@/lib/tmdb.client';
 import {
   base58Decode,
   clearBangumiImageFallbackCacheIfFailed,
-  ensureBangumiImagePrimaryProbed,
   getBangumiImageFallbackUrl,
   getDoubanImageFallbackUrl,
   processImageUrl,
@@ -47,12 +47,25 @@ import {
 } from '@/lib/utils';
 import { useLongPress } from '@/hooks/useLongPress';
 
-import AIChatPanel from '@/components/AIChatPanel';
-import DetailPanel from '@/components/DetailPanel';
 import { ImagePlaceholder } from '@/components/ImagePlaceholder';
-import ImageViewer from '@/components/ImageViewer';
-import MobileActionSheet from '@/components/MobileActionSheet';
-import TrailerPickerDialog from '@/components/TrailerPickerDialog';
+
+const AIChatPanel = dynamic(() => import('@/components/AIChatPanel'), {
+  ssr: false,
+});
+const DetailPanel = dynamic(() => import('@/components/DetailPanel'), {
+  ssr: false,
+});
+const ImageViewer = dynamic(() => import('@/components/ImageViewer'), {
+  ssr: false,
+});
+const MobileActionSheet = dynamic(
+  () => import('@/components/MobileActionSheet'),
+  { ssr: false }
+);
+const TrailerPickerDialog = dynamic(
+  () => import('@/components/TrailerPickerDialog'),
+  { ssr: false }
+);
 
 export interface VideoCardProps {
   id?: string;
@@ -224,25 +237,6 @@ const VideoCard = forwardRef<VideoCardHandle, VideoCardProps>(
     useEffect(() => {
       setDisplayPoster(processedPoster);
     }, [processedPoster]);
-
-    // 主源图片域主页探测：失败写 sticky 后切备源海报（替代原 5s 强制降级）
-    useEffect(() => {
-      if (!actualPoster) return;
-
-      let cancelled = false;
-      void (async () => {
-        const reachable = await ensureBangumiImagePrimaryProbed();
-        if (cancelled || reachable) return;
-        const bangumiFallbackPoster = getBangumiImageFallbackUrl(actualPoster);
-        if (bangumiFallbackPoster) {
-          setDisplayPoster(bangumiFallbackPoster);
-        }
-      })();
-
-      return () => {
-        cancelled = true;
-      };
-    }, [actualPoster]);
 
     useImperativeHandle(ref, () => ({
       setEpisodes: (eps?: number) => setDynamicEpisodes(eps),

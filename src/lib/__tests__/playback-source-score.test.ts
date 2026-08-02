@@ -1,5 +1,6 @@
 import {
   calculatePlaybackSourceScore,
+  parseBitrateKbps,
   parseLoadSpeedKBps,
 } from '../playback-source-score';
 
@@ -8,6 +9,12 @@ describe('playback source scoring', () => {
     expect(parseLoadSpeedKBps('768 KB/s')).toBe(768);
     expect(parseLoadSpeedKBps('1.5 MB/s')).toBe(1536);
     expect(parseLoadSpeedKBps('未知')).toBeNull();
+  });
+
+  it('normalizes Kbps and Mbps bitrates', () => {
+    expect(parseBitrateKbps('850 Kbps')).toBe(850);
+    expect(parseBitrateKbps('2.5 Mbps')).toBe(2500);
+    expect(parseBitrateKbps('未知')).toBeNull();
   });
 
   it('prefers the faster source when movie quality is equal', () => {
@@ -49,6 +56,39 @@ describe('playback source scoring', () => {
       episodeCount: 20,
     });
 
-    expect(complete - outdated).toBe(12.5);
+    expect(complete - outdated).toBe(10);
+  });
+
+  it('uses historical reliability to avoid a fast but unstable source', () => {
+    const common = {
+      maxSpeedKBps: 2048,
+      minPingMs: 50,
+      maxPingMs: 300,
+      maxBitrateKbps: 4000,
+      episodeCount: 1,
+      maxEpisodeCount: 1,
+    };
+    const unstable = calculatePlaybackSourceScore({
+      ...common,
+      testResult: {
+        quality: '1080p',
+        bitrate: '4 Mbps',
+        loadSpeed: '2 MB/s',
+        pingTime: 50,
+      },
+      historicalHealthScore: 20,
+    });
+    const reliable = calculatePlaybackSourceScore({
+      ...common,
+      testResult: {
+        quality: '1080p',
+        bitrate: '3 Mbps',
+        loadSpeed: '1.5 MB/s',
+        pingTime: 100,
+      },
+      historicalHealthScore: 95,
+    });
+
+    expect(reliable).toBeGreaterThan(unstable);
   });
 });

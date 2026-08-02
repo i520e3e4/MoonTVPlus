@@ -8,24 +8,45 @@ function createSessionId() {
     : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 }
 
-export function usePlaybackTelemetry(sourceKey: string, deviceType: 'web' | 'tv') {
+const STABLE_PLAYBACK_MS = 15_000;
+
+export function usePlaybackTelemetry(
+  sourceKey: string,
+  deviceType: 'web' | 'tv',
+  manualSelection = false
+) {
+  const stablePlaybackTimer = useRef<ReturnType<typeof setTimeout> | null>(
+    null
+  );
   const state = useRef({
     sessionId: createSessionId(),
     startedAt: Date.now(),
     bufferingCount: 0,
     reportedSuccess: false,
     reportedFailure: false,
+    manualSelection,
   });
 
   useEffect(() => {
+    if (stablePlaybackTimer.current) {
+      clearTimeout(stablePlaybackTimer.current);
+      stablePlaybackTimer.current = null;
+    }
     state.current = {
       sessionId: createSessionId(),
       startedAt: Date.now(),
       bufferingCount: 0,
       reportedSuccess: false,
       reportedFailure: false,
+      manualSelection,
     };
-  }, [sourceKey]);
+    return () => {
+      if (stablePlaybackTimer.current) {
+        clearTimeout(stablePlaybackTimer.current);
+        stablePlaybackTimer.current = null;
+      }
+    };
+  }, [manualSelection, sourceKey]);
 
   const submit = useCallback(
     (payload: Record<string, unknown>) => {
@@ -39,6 +60,7 @@ export function usePlaybackTelemetry(sourceKey: string, deviceType: 'web' | 'tv'
           sourceKey,
           deviceType,
           bufferingCount: state.current.bufferingCount,
+          manualSelection: state.current.manualSelection,
           ...payload,
         }),
       }).catch(() => undefined);
@@ -52,17 +74,36 @@ export function usePlaybackTelemetry(sourceKey: string, deviceType: 'web' | 'tv'
   }, []);
 
   const markPlaying = useCallback(() => {
-    if (state.current.reportedSuccess) return;
-    state.current.reportedSuccess = true;
-    submit({
-      success: true,
-      startupMs: Date.now() - state.current.startedAt,
-    });
+    if (
+      state.current.reportedSuccess ||
+      state.current.reportedFailure ||
+      stablePlaybackTimer.current
+    ) {
+      return;
+    }
+
+    const startupMs = Date.now() - state.current.startedAt;
+    stablePlaybackTimer.current = setTimeout(() => {
+      stablePlaybackTimer.current = null;
+      if (state.current.reportedFailure || state.current.reportedSuccess)
+        return;
+      state.current.reportedSuccess = true;
+      submit({
+        success: true,
+        startupMs,
+        playedSeconds: Math.round(STABLE_PLAYBACK_MS / 1000),
+      });
+    }, STABLE_PLAYBACK_MS);
   }, [submit]);
 
   const markFailure = useCallback(
     (failureReason: string) => {
-      if (state.current.reportedFailure || state.current.reportedSuccess) return;
+      if (state.current.reportedFailure || state.current.reportedSuccess)
+        return;
+      if (stablePlaybackTimer.current) {
+        clearTimeout(stablePlaybackTimer.current);
+        stablePlaybackTimer.current = null;
+      }
       state.current.reportedFailure = true;
       submit({
         success: false,

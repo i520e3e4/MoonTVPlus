@@ -22,7 +22,11 @@ import {
   normalizeScriptSearchResults,
   normalizeScriptSources,
 } from '@/lib/source-script';
-import { progressiveSearch, rankSources } from '@/lib/source-selection';
+import {
+  calculateHealthScore,
+  progressiveSearch,
+  rankSources,
+} from '@/lib/source-selection';
 import { yellowWords } from '@/lib/yellow';
 
 export const runtime = 'nodejs';
@@ -100,7 +104,7 @@ export async function GET(request: NextRequest) {
       ])
     )
   );
-  const cacheKey = `search:v6:${encodeURIComponent(
+  const cacheKey = `search:v7:${encodeURIComponent(
     authInfo.username
   )}:${encodeURIComponent(query.trim().toLowerCase())}:${
     includeSpecialSources ? 1 : 0
@@ -260,6 +264,10 @@ export async function GET(request: NextRequest) {
       })
     : Promise.resolve([]);
 
+  // Keep enough headroom below the Worker external-subrequest ceiling for
+  // Emby, source scripts and metadata requests made by the same invocation.
+  const maxApiCandidates = Math.min(apiSites.length, 40);
+
   // Cloudflare Free allows only 50 external subrequests per invocation.
   // Rank every configured source and search progressively in four-source waves.
   // Stop as soon as a useful result set is available, but allow two fallback
@@ -274,7 +282,7 @@ export async function GET(request: NextRequest) {
     preferenceByKey,
     configuredWeightByKey: weightMap,
     query,
-    maxCandidates: apiSites.length,
+    maxCandidates: maxApiCandidates,
   });
   const searchObservations: SearchObservation[] = [];
   let attemptedSourceCount = 0;
@@ -291,7 +299,7 @@ export async function GET(request: NextRequest) {
       });
     },
     options: {
-      maxCandidates: apiSites.length,
+      maxCandidates: maxApiCandidates,
       batchSize: 8,
       enoughResults: 4,
       enoughDistinctSources: 4,
@@ -385,10 +393,16 @@ export async function GET(request: NextRequest) {
       ...scriptResultsFlat,
     ];
 
-    flattenedResults = flattenedResults.map((result) => ({
-      ...result,
-      weight: result.weight ?? weightMap.get(result.source) ?? 0,
-    }));
+    flattenedResults = flattenedResults.map((result) => {
+      const health = healthByKey.get(result.source);
+      const preference = preferenceByKey.get(result.source);
+      return {
+        ...result,
+        weight: result.weight ?? weightMap.get(result.source) ?? 0,
+        sourceHealthScore: health ? calculateHealthScore(health) : 55,
+        sourcePreferenceScore: preference?.preferenceScore ?? 0,
+      };
+    });
 
     if (!config.SiteConfig.DisableYellowFilter) {
       flattenedResults = flattenedResults.filter((result) => {
@@ -397,11 +411,18 @@ export async function GET(request: NextRequest) {
       });
     }
 
-    // 按权重降序排序
+    // Search ordering also uses learned reliability and user preference. The
+    // playback page will add live resolution/throughput probes on top.
     flattenedResults.sort((a, b) => {
-      const weightA = a.weight ?? 0;
-      const weightB = b.weight ?? 0;
-      return weightB - weightA;
+      const priorA =
+        (a.weight ?? 0) +
+        ((a.sourceHealthScore ?? 55) - 55) * 0.25 +
+        (a.sourcePreferenceScore ?? 0);
+      const priorB =
+        (b.weight ?? 0) +
+        ((b.sourceHealthScore ?? 55) - 55) * 0.25 +
+        (b.sourcePreferenceScore ?? 0);
+      return priorB - priorA;
     });
 
     const cacheTime = await getCacheTime();
@@ -414,7 +435,7 @@ export async function GET(request: NextRequest) {
     await setRuntimeCacheJson(
       cacheKey,
       { results: flattenedResults },
-      Math.min(600, Math.max(300, cacheTime))
+      Math.min(300, Math.max(120, cacheTime))
     );
 
     return NextResponse.json(
@@ -424,6 +445,7 @@ export async function GET(request: NextRequest) {
           'Cache-Control': 'private, max-age=60',
           'Netlify-Vary': 'query',
           'X-MoonTV-Sources-Attempted': String(attemptedSourceCount),
+          'X-MoonTV-Sources-Available': String(apiSites.length),
           'X-MoonTV-Cache': 'miss',
         },
       }

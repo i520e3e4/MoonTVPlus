@@ -12,14 +12,13 @@ import { getUserFeatureAccess } from '@/lib/permissions';
 import { listEnabledSourceScripts } from '@/lib/source-script';
 
 import { StartupCacheCleanup } from '../components/DanmakuCacheCleanup';
-import { DownloadBubble } from '../components/DownloadBubble';
-import { DownloadPanel } from '../components/DownloadPanel';
+import { DeferredGlobalOverlays } from '../components/DeferredGlobalOverlays';
 import { GlobalErrorIndicator } from '../components/GlobalErrorIndicator';
 import RouteScrollReset from '../components/RouteScrollReset';
 import { SiteProvider } from '../components/SiteProvider';
 import { TokenRefreshManager } from '../components/TokenRefreshManager';
 import TopProgressBar from '../components/TopProgressBar';
-import ChatFloatingWindow from '../components/watch-room/ChatFloatingWindow';
+import { VersionCheckProvider } from '../components/VersionCheckProvider';
 import { WatchRoomProvider } from '../components/WatchRoomProvider';
 import { DownloadProvider } from '../contexts/DownloadContext';
 
@@ -132,21 +131,25 @@ export default async function RootLayout({
     process.env.LEGADO_ENABLED === 'true';
   let musicProxyEnabled = true;
   let advancedRecommendationEnabled = false;
-  let userFeatureAccess =
-    storageType === 'localstorage'
-      ? await getUserFeatureAccess(process.env.USERNAME || 'localstorage-owner')
-      : await getUserFeatureAccess(null);
+  let userFeatureAccess: Awaited<ReturnType<typeof getUserFeatureAccess>>;
   let customCategories = [] as {
     name: string;
     type: 'movie' | 'tv';
     query: string;
   }[];
-  if (storageType !== 'localstorage') {
+  if (storageType === 'localstorage') {
+    userFeatureAccess = await getUserFeatureAccess(
+      process.env.USERNAME || 'localstorage-owner'
+    );
+  } else {
     const cookieStore = await cookies();
     const authInfo = parseAuthInfo(cookieStore.get('auth')?.value);
-    userFeatureAccess = await getUserFeatureAccess(authInfo?.username);
-
-    const config = await getConfig();
+    const [config, featureAccess, sourceScripts] = await Promise.all([
+      getConfig(),
+      getUserFeatureAccess(authInfo?.username),
+      listEnabledSourceScripts(),
+    ]);
+    userFeatureAccess = featureAccess;
     siteName = config.SiteConfig.SiteName;
     announcement = config.SiteConfig.Announcement;
     announcementDisplayMode =
@@ -235,8 +238,7 @@ export default async function RootLayout({
     // 不一定会出现在 OPDS Sources 中；入口应由“启用电子书馆”开关控制。
     booksEnabled = !!opdsConfig?.Enabled;
     // 高级推荐功能配置：存在已启用视频源脚本时显示
-    advancedRecommendationEnabled =
-      (await listEnabledSourceScripts()).length > 0;
+    advancedRecommendationEnabled = sourceScripts.length > 0;
     // 检查是否启用了 OpenList 功能
     openListEnabled = !!(
       config.OpenListConfig?.Enabled &&
@@ -419,16 +421,16 @@ export default async function RootLayout({
           announcementDisplayMode={announcementDisplayMode}
           tmdbApiKey={tmdbApiKey}
         >
-          <WatchRoomProvider>
-            <DownloadProvider>
-              <StartupCacheCleanup />
-              {children}
-              <GlobalErrorIndicator />
-              <ChatFloatingWindow />
-              <DownloadBubble />
-              <DownloadPanel />
-            </DownloadProvider>
-          </WatchRoomProvider>
+          <VersionCheckProvider>
+            <WatchRoomProvider>
+              <DownloadProvider>
+                <StartupCacheCleanup />
+                {children}
+                <GlobalErrorIndicator />
+                <DeferredGlobalOverlays />
+              </DownloadProvider>
+            </WatchRoomProvider>
+          </VersionCheckProvider>
         </SiteProvider>
       </body>
     </html>

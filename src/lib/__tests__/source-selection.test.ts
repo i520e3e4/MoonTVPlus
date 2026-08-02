@@ -102,6 +102,45 @@ describe('source selection', () => {
     expect(fastStartup).toBeGreaterThan(slowStartup);
   });
 
+  it('uses calculated reliability rather than a stale stored score', () => {
+    const sites = createSites(2);
+    const ranked = rankSources({
+      sites,
+      maxCandidates: 2,
+      healthByKey: new Map([
+        [
+          'source-1',
+          {
+            sourceKey: 'source-1',
+            healthScore: 99,
+            searchSuccessCount: 1,
+            searchFailureCount: 50,
+            playbackSuccessCount: 1,
+            playbackFailureCount: 30,
+            p50LatencyMs: 7000,
+            p95LatencyMs: 9000,
+          } as any,
+        ],
+        [
+          'source-2',
+          {
+            sourceKey: 'source-2',
+            healthScore: 20,
+            searchSuccessCount: 40,
+            searchFailureCount: 1,
+            playbackSuccessCount: 30,
+            playbackFailureCount: 1,
+            p50LatencyMs: 300,
+            p95LatencyMs: 800,
+            averageStartupMs: 900,
+          } as any,
+        ],
+      ]),
+    });
+
+    expect(ranked[0].site.key).toBe('source-2');
+  });
+
   it('searches in waves and stops when enough results are found', async () => {
     const sources = rankSources({
       sites: createSites(12),

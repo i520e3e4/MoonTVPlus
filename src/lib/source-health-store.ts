@@ -5,10 +5,7 @@ import type {
   D1DatabaseSession,
   D1PreparedStatement,
 } from './d1-adapter';
-import {
-  getRuntimeCacheJson,
-  setRuntimeCacheJson,
-} from './runtime-cache';
+import { getRuntimeCacheJson, setRuntimeCacheJson } from './runtime-cache';
 import {
   PlaybackTelemetryInput,
   SourceHealth,
@@ -52,9 +49,8 @@ interface PreferenceRow {
   last_used_at: number | null;
 }
 
-let databasePromise: Promise<
-  D1Database | D1DatabaseSession | null
-> | null = null;
+let databasePromise: Promise<D1Database | D1DatabaseSession | null> | null =
+  null;
 
 async function resolveDatabase(): Promise<
   D1Database | D1DatabaseSession | null
@@ -72,9 +68,10 @@ async function resolveDatabase(): Promise<
     try {
       const { getCloudflareContext } = await import('@opennextjs/cloudflare');
       const context = await getCloudflareContext({ async: true });
-      const database = ((context.env as Record<string, unknown>).DB as
-        | D1Database
-        | undefined) || null;
+      const database =
+        ((context.env as Record<string, unknown>).DB as
+          | D1Database
+          | undefined) || null;
       return database?.withSession?.('first-unconstrained') || database;
     } catch (error) {
       console.warn('[SourceHealth] D1 binding unavailable:', error);
@@ -281,7 +278,11 @@ export async function recordSearchObservations(
              searches = searches + 1,
              successful_searches = successful_searches + excluded.successful_searches`
         )
-        .bind(statDate, observation.sourceKey, observation.resultCount > 0 ? 1 : 0)
+        .bind(
+          statDate,
+          observation.sourceKey,
+          observation.resultCount > 0 ? 1 : 0
+        )
     );
   }
 
@@ -382,7 +383,10 @@ export async function recordPlaybackTelemetry(params: {
         bufferingCount,
         adSegments,
         Math.max(0, Math.min(100, 60 + healthDelta)),
-        success ? null : now + 300000,
+        // A single first-time failure is not enough evidence to open the
+        // circuit. The ON CONFLICT branch opens it after three consecutive
+        // failures, matching search health behavior.
+        null,
         success ? now : null,
         success ? null : now,
         now,
@@ -490,9 +494,7 @@ export async function getSourceOverview(): Promise<{
     searchSuccessRate:
       safe.search_total > 0 ? safe.search_success / safe.search_total : 0,
     playbackSuccessRate:
-      safe.playback_total > 0
-        ? safe.playback_success / safe.playback_total
-        : 0,
+      safe.playback_total > 0 ? safe.playback_success / safe.playback_total : 0,
     averageStartupMs:
       safe.startup_samples > 0
         ? Math.round(safe.startup_total / safe.startup_samples)

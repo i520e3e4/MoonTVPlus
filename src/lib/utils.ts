@@ -150,11 +150,7 @@ function isBangumiImageUrl(url: string): boolean {
   }
 }
 
-type AnimeImageSource =
-  | 'direct'
-  | 'server-proxy'
-  | 'custom-baseurl'
-  | 'sakura';
+type AnimeImageSource = 'direct' | 'server-proxy' | 'custom-baseurl' | 'sakura';
 
 const BANGUMI_IMAGE_FALLBACK_UNTIL_KEY = 'bangumiImageFallbackUntil';
 const BANGUMI_IMAGE_FALLBACK_SIGNATURE_KEY = 'bangumiImageFallbackSignature';
@@ -192,7 +188,10 @@ function rewriteBangumiUrlToSakura(url: string): string {
     } else if (hostname.endsWith('.bgm.tv')) {
       parsed.hostname = `${hostname.slice(0, -'.bgm.tv'.length)}.bangumi.lol`;
     } else if (hostname.endsWith('.bangumi.tv')) {
-      parsed.hostname = `${hostname.slice(0, -'.bangumi.tv'.length)}.bangumi.lol`;
+      parsed.hostname = `${hostname.slice(
+        0,
+        -'.bangumi.tv'.length
+      )}.bangumi.lol`;
     }
     return parsed.toString();
   } catch {
@@ -585,15 +584,13 @@ export function processImageUrl(originalUrl: string): string {
 
   // 处理 Bangumi 图片代理。直连模式尊重用户选择，不代理图片；
   // 仅在服务器代理 / 自定义 Base URL 模式下使用本站图片代理。
-  // sticky 降级中走备源；否则用主源，并非阻塞探测主源图片域主页（5s，404 算通）。
+  // sticky 降级中走备源；否则直接加载主源。图片自身的 onError
+  // 负责切换备源，避免每次首屏额外请求一个必然 404 的域名探针。
   if (isBangumiImageUrl(originalUrl)) {
     const primary = getPrimaryBangumiImageSource();
     const backup = getBackupBangumiImageSource(primary);
     if (backup && isBangumiImageFallbackActive()) {
       return buildBangumiImageUrl(originalUrl, backup);
-    }
-    if (primary !== 'server-proxy' && backup) {
-      scheduleBangumiImagePrimaryProbe();
     }
     return buildBangumiImageUrl(originalUrl, primary);
   }
@@ -691,18 +688,10 @@ export async function getVideoResolutionFromM3u8(
       video.muted = true;
       video.preload = 'metadata';
 
-      // 测量网络延迟（ping时间） - 使用m3u8 URL而不是ts文件
-      const pingStart = performance.now();
+      // Measure manifest latency from the HLS request itself. A separate HEAD
+      // request duplicated traffic and often failed on GET-only origins.
+      const manifestStart = performance.now();
       let pingTime = 0;
-
-      // 测量ping时间（使用m3u8 URL）
-      fetch(m3u8Url, { method: 'HEAD', mode: 'no-cors' })
-        .then(() => {
-          pingTime = performance.now() - pingStart;
-        })
-        .catch(() => {
-          pingTime = performance.now() - pingStart; // 记录到失败为止的时间
-        });
 
       // 固定使用hls.js加载
       const hls = new Hls();
@@ -832,13 +821,11 @@ export async function getVideoResolutionFromM3u8(
         }
       });
 
-      // 为分片请求添加时间戳参数破除浏览器缓存
-      hls.config.xhrSetup = function (xhr: XMLHttpRequest, url: string) {
-        const urlWithTimestamp = url.includes('?')
-          ? `${url}&_t=${Date.now()}`
-          : `${url}?_t=${Date.now()}`;
-        xhr.open('GET', urlWithTimestamp, true);
-      };
+      hls.on(Hls.Events.MANIFEST_LOADED, () => {
+        if (pingTime <= 0) {
+          pingTime = performance.now() - manifestStart;
+        }
+      });
 
       hls.loadSource(m3u8Url);
       hls.attachMedia(video);

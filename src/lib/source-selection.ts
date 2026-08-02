@@ -97,7 +97,9 @@ export function rankSources(params: {
     const circuitOpen = Boolean(
       health?.circuitOpenUntil && health.circuitOpenUntil > now
     );
-    const healthScore = health?.healthScore ?? DEFAULT_HEALTH_SCORE;
+    const healthScore = health
+      ? calculateHealthScore(health, now)
+      : DEFAULT_HEALTH_SCORE;
     const preferenceBonus = clamp(
       preference?.preferenceScore || 0,
       -MAX_PREFERENCE_BONUS,

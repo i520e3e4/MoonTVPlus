@@ -1,6 +1,5 @@
 'use client';
 
-import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 
 import { BackButton } from './BackButton';
@@ -9,7 +8,6 @@ import MobileHeader from './MobileHeader';
 import Sidebar from './Sidebar';
 import { UpdateNotification } from './UpdateNotification';
 import { UserMenu } from './UserMenu';
-import { VersionCheckProvider } from './VersionCheckProvider';
 
 interface PageLayoutProps {
   children: React.ReactNode;
@@ -22,14 +20,8 @@ const PageLayout = ({
   activePath = '/',
   hideNavigation = false,
 }: PageLayoutProps) => {
-  const router = useRouter();
   const [backgroundImage, setBackgroundImage] = useState('');
   const shouldShowSharedBackground = !hideNavigation && activePath !== '/play';
-
-  useEffect(() => {
-    router.prefetch('/search');
-    router.prefetch('/play');
-  }, [router]);
 
   useEffect(() => {
     if (typeof window === 'undefined' || !shouldShowSharedBackground) {
@@ -64,74 +56,72 @@ const PageLayout = ({
   }, [shouldShowSharedBackground]);
 
   return (
-    <VersionCheckProvider>
-      <div
-        className='netflix-shell relative w-full min-h-screen overflow-hidden'
-        data-page={activePath}
-      >
-        {shouldShowSharedBackground && backgroundImage && (
-          <>
-            <div
-              className='absolute inset-0 pointer-events-none bg-cover bg-center bg-no-repeat opacity-45'
-              style={{ backgroundImage: `url(${backgroundImage})` }}
-            />
-            <div className='absolute inset-0 pointer-events-none bg-white/50 dark:bg-gray-950/50' />
-          </>
-        )}
-
-        {/* 移动端头部 */}
-        {!hideNavigation && (
-          <MobileHeader
-            showBackButton={['/play', '/live'].includes(activePath)}
+    <div
+      className='netflix-shell relative w-full min-h-screen overflow-hidden'
+      data-page={activePath}
+    >
+      {shouldShowSharedBackground && backgroundImage && (
+        <>
+          <div
+            className='absolute inset-0 pointer-events-none bg-cover bg-center bg-no-repeat opacity-45'
+            style={{ backgroundImage: `url(${backgroundImage})` }}
           />
+          <div className='absolute inset-0 pointer-events-none bg-white/50 dark:bg-gray-950/50' />
+        </>
+      )}
+
+      {/* 移动端头部 */}
+      {!hideNavigation && (
+        <MobileHeader
+          showBackButton={['/play', '/live'].includes(activePath)}
+        />
+      )}
+
+      {/* 主要布局容器 */}
+      <div className='relative z-10 flex md:grid md:grid-cols-[auto_1fr] w-full min-h-screen md:min-h-auto'>
+        {/* 侧边栏 - 桌面端显示，移动端隐藏 */}
+        {!hideNavigation && (
+          <div className='hidden md:block'>
+            <Sidebar activePath={activePath} />
+          </div>
         )}
 
-        {/* 主要布局容器 */}
-        <div className='relative z-10 flex md:grid md:grid-cols-[auto_1fr] w-full min-h-screen md:min-h-auto'>
-          {/* 侧边栏 - 桌面端显示，移动端隐藏 */}
-          {!hideNavigation && (
-            <div className='hidden md:block'>
-              <Sidebar activePath={activePath} />
+        {/* 主内容区域 */}
+        <div className='relative min-w-0 flex-1 transition-all duration-300'>
+          {/* 桌面端左上角返回按钮 */}
+          {!hideNavigation && ['/play', '/live'].includes(activePath) && (
+            <div className='absolute top-3 left-1 z-20 hidden md:flex'>
+              <BackButton />
             </div>
           )}
 
-          {/* 主内容区域 */}
-          <div className='relative min-w-0 flex-1 transition-all duration-300'>
-            {/* 桌面端左上角返回按钮 */}
-            {!hideNavigation && ['/play', '/live'].includes(activePath) && (
-              <div className='absolute top-3 left-1 z-20 hidden md:flex'>
-                <BackButton />
-              </div>
-            )}
+          {/* 桌面端顶部按钮 */}
+          {!hideNavigation && (
+            <div className='fixed top-2 right-4 z-[900] hidden md:flex items-center gap-2'>
+              <UserMenu />
+              <UpdateNotification />
+            </div>
+          )}
 
-            {/* 桌面端顶部按钮 */}
-            {!hideNavigation && (
-              <div className='fixed top-2 right-4 z-[900] hidden md:flex items-center gap-2'>
-                <UserMenu />
-                <UpdateNotification />
-              </div>
-            )}
-
-            {/* 主内容 */}
-            <main
-              className='netflix-main flex-1 md:min-h-0 mb-14 md:mb-0 md:mt-0 mt-[calc(3rem+env(safe-area-inset-top))]'
-              style={{
-                paddingBottom: 'calc(3.5rem + env(safe-area-inset-bottom))',
-              }}
-            >
-              {children}
-            </main>
-          </div>
+          {/* 主内容 */}
+          <main
+            className='netflix-main flex-1 md:min-h-0 mb-14 md:mb-0 md:mt-0 mt-[calc(3rem+env(safe-area-inset-top))]'
+            style={{
+              paddingBottom: 'calc(3.5rem + env(safe-area-inset-bottom))',
+            }}
+          >
+            {children}
+          </main>
         </div>
-
-        {/* 移动端底部导航 */}
-        {!hideNavigation && (
-          <div className='md:hidden'>
-            <MobileBottomNav activePath={activePath} />
-          </div>
-        )}
       </div>
-    </VersionCheckProvider>
+
+      {/* 移动端底部导航 */}
+      {!hideNavigation && (
+        <div className='md:hidden'>
+          <MobileBottomNav activePath={activePath} />
+        </div>
+      )}
+    </div>
   );
 };
 
