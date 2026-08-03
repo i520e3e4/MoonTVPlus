@@ -76,11 +76,18 @@ import { getIndexedDBVideoPlaybackUrl } from '@/lib/indexeddb-video-cache';
 import { filterM3u8Ads } from '@/lib/m3u8-ad-filter';
 import { isNetdiskSource, normalizeNetdiskSource } from '@/lib/netdisk/source';
 import {
+  createPlaybackFailoverGuardState,
+  evaluatePlaybackFailover,
+  recordPlaybackFailover,
+  resetPlaybackFailoverGuard,
+  SUSTAINED_BUFFERING_SWITCH_DELAY_MS,
+} from '@/lib/playback-failover-guard';
+import { probePlaybackSource } from '@/lib/playback-source-probe';
+import {
   calculatePlaybackSourceScore,
   parseBitrateKbps,
   parseLoadSpeedKBps,
 } from '@/lib/playback-source-score';
-import { probePlaybackSource } from '@/lib/playback-source-probe';
 import {
   getRecommendationCache,
   recommendationCacheKeys,
@@ -977,6 +984,9 @@ function PlayPageClient() {
   const currentEpisodeIndexRef = useRef(currentEpisodeIndex);
   const isSourceChangingRef = useRef(false); // 标记是否正在换源
   const automaticSourceSwitchRef = useRef(false);
+  const playbackFailoverGuardRef = useRef(
+    createPlaybackFailoverGuardState()
+  );
 
   // 同步最新值到 refs
   useEffect(() => {
@@ -1993,7 +2003,9 @@ function PlayPageClient() {
 
   useEffect(() => {
     failedPlaybackSourcesRef.current.clear();
-  }, [currentEpisodeIndex, videoTitle]);
+    pendingAutomaticSourceSwitchReasonRef.current = null;
+    resetPlaybackFailoverGuard(playbackFailoverGuardRef.current);
+  }, [currentEpisodeIndex, searchTitle]);
 
   useEffect(() => {
     try {
@@ -5791,6 +5803,11 @@ function PlayPageClient() {
     automatic = false
   ) => {
     try {
+      if (!automatic) {
+        failedPlaybackSourcesRef.current.clear();
+        pendingAutomaticSourceSwitchReasonRef.current = null;
+        resetPlaybackFailoverGuard(playbackFailoverGuardRef.current);
+      }
       // 标记正在换源，防止 title 变化触发页面刷新
       isSourceChangingRef.current = true;
 
@@ -6003,6 +6020,20 @@ function PlayPageClient() {
 
   const attemptAutomaticSourceSwitch = async (reason: string) => {
     if (automaticSourceSwitchRef.current || isSourceChangingRef.current) return;
+    const isStartupFailure =
+      reason === '首帧超过 8 秒' || reason === '播放解析失败';
+    const decision = evaluatePlaybackFailover({
+      state: playbackFailoverGuardRef.current,
+      now: Date.now(),
+      ignoreCooldown: isStartupFailure,
+    });
+    if (!decision.allowed) {
+      if (decision.reason === 'limit' && artPlayerRef.current) {
+        artPlayerRef.current.notice.show =
+          '本集已自动换源 2 次，已暂停自动换源，请手动选择线路';
+      }
+      return;
+    }
     if (currentSourceRef.current && currentIdRef.current) {
       failedPlaybackSourcesRef.current.add(
         `${currentSourceRef.current}-${currentIdRef.current}`
@@ -6022,6 +6053,7 @@ function PlayPageClient() {
     }
 
     pendingAutomaticSourceSwitchReasonRef.current = null;
+    recordPlaybackFailover(playbackFailoverGuardRef.current, Date.now());
     automaticSourceSwitchRef.current = true;
     if (artPlayerRef.current) {
       artPlayerRef.current.notice.show = `线路异常（${reason}），正在自动切换至 ${
@@ -7617,6 +7649,11 @@ function PlayPageClient() {
             window.clearTimeout(timeoutId);
           });
           playerTimeouts.clear();
+        };
+        let sustainedBufferingTimer: number | null = null;
+        const clearSustainedBufferingTimer = () => {
+          clearTrackedTimeout(sustainedBufferingTimer);
+          sustainedBufferingTimer = null;
         };
 
         const syncPlaybackPitch = () => {
@@ -9908,6 +9945,7 @@ function PlayPageClient() {
         // 监听视频可播放事件，这时恢复播放进度更可靠
         artPlayerRef.current.on('video:canplay', () => {
           clearTrackedTimeout(startupSwitchTimer);
+          clearSustainedBufferingTimer();
           let restoredResumeTime = false;
 
           // 若存在需要恢复的播放进度，则跳转
@@ -9992,6 +10030,7 @@ function PlayPageClient() {
 
         // 监听视频播放事件，检查是否需要显示播放记录跳转按钮
         artPlayerRef.current.on('video:playing', () => {
+          clearSustainedBufferingTimer();
           playbackTelemetry.markPlaying();
           // 检查是否需要显示播放记录跳转按钮
           // 条件：当前播放时间 < 10秒 且 播放记录时间 > 10秒
@@ -10202,10 +10241,37 @@ function PlayPageClient() {
         });
 
         artPlayerRef.current.on('video:waiting', () => {
-          const bufferingCount = playbackTelemetry.markWaiting();
-          if (bufferingCount >= 3) {
-            void attemptAutomaticSourceSwitch('短时连续缓冲');
+          playbackTelemetry.markWaiting();
+          const video = artPlayerRef.current?.video as
+            | HTMLVideoElement
+            | undefined;
+          const currentTime = artPlayerRef.current?.currentTime || 0;
+          // seeking、首帧加载和一次短暂 CDN 抖动都不应直接判死整条线路。
+          // 只有已经播放且连续 12 秒没有恢复 playing/canplay 才允许换源。
+          if (
+            sustainedBufferingTimer !== null ||
+            currentTime < 3 ||
+            video?.seeking ||
+            video?.paused
+          ) {
+            return;
           }
+          sustainedBufferingTimer = schedulePlayerTimeout(() => {
+            sustainedBufferingTimer = null;
+            const currentVideo = artPlayerRef.current?.video as
+              | HTMLVideoElement
+              | undefined;
+            if (
+              !artPlayerRef.current ||
+              artPlayerRef.current.playing ||
+              currentVideo?.seeking ||
+              currentVideo?.paused
+            ) {
+              return;
+            }
+            playbackTelemetry.markFailure('sustained-buffering');
+            void attemptAutomaticSourceSwitch('持续缓冲超过 12 秒');
+          }, SUSTAINED_BUFFERING_SWITCH_DELAY_MS);
         });
 
         // 监听视频时间更新事件，实现跳过片头片尾
