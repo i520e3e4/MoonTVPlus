@@ -80,6 +80,7 @@ import {
   parseBitrateKbps,
   parseLoadSpeedKBps,
 } from '@/lib/playback-source-score';
+import { probePlaybackSource } from '@/lib/playback-source-probe';
 import {
   getRecommendationCache,
   recommendationCacheKeys,
@@ -2031,7 +2032,17 @@ function PlayPageClient() {
   const [precomputedVideoInfo, setPrecomputedVideoInfo] = useState<
     Map<
       string,
-      { quality: string; loadSpeed: string; pingTime: number; bitrate: string }
+      {
+        quality: string;
+        loadSpeed: string;
+        pingTime: number;
+        bitrate: string;
+        throughputKbps?: number;
+        sustainabilityRatio?: number;
+        manifestMs?: number;
+        probeMode?: 'direct' | 'proxy';
+        fallbackUsed?: boolean;
+      }
     >
   >(new Map());
 
@@ -2880,35 +2891,25 @@ function PlayPageClient() {
         if (source.episodes.length <= targetEpisodeIndex) {
           return null;
         }
-        let episodeUrl = source.episodes[targetEpisodeIndex];
-
-        const isM3u8 =
-          episodeUrl.toLowerCase().includes('.m3u') ||
-          !episodeUrl
-            .toLowerCase()
-            .match(/\.(mp4|flv|webm|mkv|avi|mov)(\?.*)?$/);
-        if (source.source === 'directplay' && isM3u8) {
-          if (isDirectplayDomainProxied(episodeUrl)) {
-            const tokenParam = proxyToken
-              ? `&token=${encodeURIComponent(proxyToken)}`
-              : '';
-            episodeUrl = `/api/proxy-m3u8?url=${encodeURIComponent(
-              episodeUrl
-            )}&source=directplay${tokenParam}`;
-          }
-        } else if (source.proxyMode && isM3u8) {
-          episodeUrl = `/api/proxy/vod/m3u8?url=${encodeURIComponent(
-            episodeUrl
-          )}&source=${encodeURIComponent(source.source)}`;
-        }
-
-        const testResult = await getVideoResolutionFromM3u8(episodeUrl, 4500);
+        const episodeUrl = source.episodes[targetEpisodeIndex];
+        const testResult = await probePlaybackSource({
+          url: episodeUrl,
+          sourceKey: source.source,
+          proxyMode: source.proxyMode,
+          proxyToken,
+          timeoutMs: 4500,
+          probe: getVideoResolutionFromM3u8,
+        });
 
         return {
           source,
           testResult,
         };
       } catch (error) {
+        console.warn(
+          `[播放源测速] ${source.source_name} (${source.source}) 检测失败:`,
+          error
+        );
         return null;
       }
     };
@@ -2919,10 +2920,22 @@ function PlayPageClient() {
       probe: testSingleSource,
       options: {
         batchSize: fullProbe ? 4 : 3,
-        maxCandidates: fullProbe
-          ? sortedByWeight.length
-          : Math.min(9, sortedByWeight.length),
-        enoughSuccessfulResults: fullProbe ? Number.MAX_SAFE_INTEGER : 3,
+        maxCandidates: sortedByWeight.length,
+        enoughSuccessfulResults: Number.MAX_SAFE_INTEGER,
+        shouldStop: fullProbe
+          ? undefined
+          : (items) => {
+              const successful = items
+                .map((item) => item.result as SourceTestResult | null)
+                .filter(Boolean) as SourceTestResult[];
+              if (successful.length < 3) return false;
+
+              return successful.some(
+                ({ testResult }) =>
+                  ['1080p', '2K', '4K'].includes(testResult.quality) &&
+                  testResult.sustainabilityRatio >= 1.25
+              );
+            },
       },
     });
 
@@ -5088,7 +5101,7 @@ function PlayPageClient() {
       }
 
       try {
-        const cacheKey = `search_cache_v2_${query.trim()}${
+        const cacheKey = `search_cache_v3_${query.trim()}${
           isSpecialSourcesEnabledOnDevice() ? '_special' : ''
         }`;
         const cached = sessionStorage.getItem(cacheKey);
@@ -5116,7 +5129,7 @@ function PlayPageClient() {
       if (typeof window === 'undefined' || !query.trim()) return;
 
       try {
-        const cacheKey = `search_cache_v2_${query.trim()}${
+        const cacheKey = `search_cache_v3_${query.trim()}${
           isSpecialSourcesEnabledOnDevice() ? '_special' : ''
         }`;
         const payload: SearchCachePayload = {

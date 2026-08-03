@@ -3,6 +3,7 @@ import {
   calculateAbsoluteSpeedScore,
   calculatePlaybackSourceScore,
   calculateSustainabilityScore,
+  calculateSustainableQualityBonus,
   parseBitrateKbps,
   parseLoadSpeedKBps,
 } from '../playback-source-score';
@@ -31,6 +32,11 @@ describe('playback source scoring', () => {
     expect(calculateSustainabilityScore(1)).toBe(25);
     expect(calculateSustainabilityScore(2)).toBe(80);
     expect(calculateSustainabilityScore(3)).toBe(100);
+  });
+
+  it('promotes higher resolution only when measured throughput can sustain it', () => {
+    expect(calculateSustainableQualityBonus('1080p', 1.5)).toBe(12);
+    expect(calculateSustainableQualityBonus('4K', 0.9)).toBe(0);
   });
 
   it('prefers the faster source when movie quality is equal', () => {
@@ -139,5 +145,39 @@ describe('playback source scoring', () => {
       },
     });
     expect(sustainable1080p).toBeGreaterThan(unsustainable4k);
+  });
+
+  it('prefers sustainable 1080p over a faster 720p source', () => {
+    const common = {
+      maxSpeedKBps: 4096,
+      minPingMs: 80,
+      maxPingMs: 100,
+      maxBitrateKbps: 4000,
+      episodeCount: 1,
+      maxEpisodeCount: 1,
+      historicalHealthScore: 80,
+    };
+    const hd = calculatePlaybackSourceScore({
+      ...common,
+      testResult: {
+        quality: '1080p',
+        bitrate: '4 Mbps',
+        loadSpeed: '1.5 MB/s',
+        pingTime: 100,
+        sustainabilityRatio: 3.1,
+      },
+    });
+    const lowerResolution = calculatePlaybackSourceScore({
+      ...common,
+      testResult: {
+        quality: '720p',
+        bitrate: '2 Mbps',
+        loadSpeed: '4 MB/s',
+        pingTime: 80,
+        sustainabilityRatio: 16,
+      },
+    });
+
+    expect(hd).toBeGreaterThan(lowerResolution);
   });
 });

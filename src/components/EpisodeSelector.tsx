@@ -23,6 +23,8 @@ import {
   parseBitrateKbps,
   parseLoadSpeedKBps,
 } from '@/lib/playback-source-score';
+import { probePlaybackSource } from '@/lib/playback-source-probe';
+import { getSourceDisplayLabel } from '@/lib/source-display';
 import { EpisodeFilterConfig, SearchResult } from '@/lib/types';
 import { getVideoResolutionFromM3u8 } from '@/lib/utils';
 
@@ -39,6 +41,9 @@ interface VideoInfo {
   throughputKbps?: number;
   sustainabilityRatio?: number;
   manifestMs?: number;
+  probeMode?: 'direct' | 'proxy';
+  fallbackUsed?: boolean;
+  failureReason?: string;
   hasError?: boolean; // 添加错误状态标识
 }
 
@@ -400,25 +405,20 @@ const EpisodeSelector: React.FC<EpisodeSelectorProps> = ({
         0,
         Math.min(source.episodes.length - 1, value - 1)
       );
-      let episodeUrl = source.episodes[targetIndex];
-      const isM3u8 =
-        episodeUrl.toLowerCase().includes('.m3u') ||
-        !episodeUrl.toLowerCase().match(/\.(mp4|flv|webm|mkv|avi|mov)(\?.*)?$/);
-      if (source.proxyMode && isM3u8) {
-        episodeUrl = `/api/proxy/vod/m3u8?url=${encodeURIComponent(
-          episodeUrl
-        )}&source=${encodeURIComponent(source.source)}`;
-      }
+      const episodeUrl = source.episodes[targetIndex];
 
       // 标记为已尝试
       attemptedSourcesRef.current.add(sourceKey);
       setAttemptedSources((prev) => new Set(prev).add(sourceKey));
 
       try {
-        const info = await getVideoResolutionFromM3u8(
-          episodeUrl,
-          speedTestTimeout
-        );
+        const info = await probePlaybackSource({
+          url: episodeUrl,
+          sourceKey: source.source,
+          proxyMode: source.proxyMode,
+          timeoutMs: speedTestTimeout,
+          probe: getVideoResolutionFromM3u8,
+        });
         setVideoInfoMap((prev) => new Map(prev).set(sourceKey, info));
       } catch (error) {
         // 失败时保存错误状态
@@ -428,6 +428,8 @@ const EpisodeSelector: React.FC<EpisodeSelectorProps> = ({
             loadSpeed: '未知',
             pingTime: 0,
             bitrate: '未知',
+            failureReason:
+              error instanceof Error ? error.message : '未知检测错误',
             hasError: true,
           })
         );
@@ -787,6 +789,19 @@ const EpisodeSelector: React.FC<EpisodeSelectorProps> = ({
     [sourceRankingContext, videoInfoMap]
   );
 
+  const recommendedSourceKey = useMemo(() => {
+    const measuredSources = availableSources.filter((source) => {
+      const info = videoInfoMap.get(`${source.source}-${source.id}`);
+      return info && !info.hasError;
+    });
+    if (measuredSources.length === 0) return null;
+    measuredSources.sort(
+      (a, b) => getSmartSourceScore(b) - getSmartSourceScore(a)
+    );
+    const best = measuredSources[0];
+    return `${best.source}-${best.id}`;
+  }, [availableSources, getSmartSourceScore, videoInfoMap]);
+
   // 重新测试单个源
   const handleRetestSource = useCallback(
     async (source: SearchResult, e: React.MouseEvent) => {
@@ -1116,9 +1131,13 @@ const EpisodeSelector: React.FC<EpisodeSelectorProps> = ({
                     return getSmartSourceScore(b) - getSmartSourceScore(a);
                   })
                   .map((source, index) => {
+                    const sourceKey = `${source.source}-${source.id}`;
                     const isCurrentSource =
                       source.source?.toString() === currentSource?.toString() &&
                       source.id?.toString() === currentId?.toString();
+                    const isRecommendedSource =
+                      sourceKey === recommendedSourceKey;
+                    const smartScore = getSmartSourceScore(source);
                     return (
                       <div
                         key={`${source.source}-${source.id}`}
@@ -1155,11 +1174,28 @@ const EpisodeSelector: React.FC<EpisodeSelectorProps> = ({
                           {/* 标题和分辨率 - 顶部 */}
                           <div className='flex items-start justify-between gap-3 h-6'>
                             <div className='flex-1 min-w-0 relative group/title'>
-                              <h3
-                                className={`font-medium text-base truncate ${sourceTitleClass} leading-none`}
-                              >
-                                {source.title}
-                              </h3>
+                              <div className='flex items-center gap-1.5 min-w-0'>
+                                <h3
+                                  className={`font-medium text-base truncate ${sourceTitleClass} leading-none`}
+                                >
+                                  {source.title}
+                                </h3>
+                                {isCurrentSource && (
+                                  <span className='shrink-0 rounded bg-blue-500/20 px-1 text-[10px] text-blue-600 dark:text-blue-300'>
+                                    当前
+                                  </span>
+                                )}
+                                {isRecommendedSource && (
+                                  <span
+                                    className='shrink-0 rounded bg-emerald-500/20 px-1 text-[10px] text-emerald-600 dark:text-emerald-300'
+                                    title={`综合评分 ${smartScore.toFixed(
+                                      1
+                                    )}，已同时考虑画质、吞吐余量、延迟、稳定性和剧集完整度`}
+                                  >
+                                    优选 {Math.round(smartScore)}
+                                  </span>
+                                )}
+                              </div>
                               {/* 标题级别的 tooltip - 第一个元素不显示 */}
                               {index !== 0 && (
                                 <div className='absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-3 py-1 bg-gray-800 text-white text-xs rounded-md shadow-lg opacity-0 invisible group-hover/title:opacity-100 group-hover/title:visible transition-all duration-200 ease-out delay-100 whitespace-nowrap z-[500] pointer-events-none'>
@@ -1175,7 +1211,13 @@ const EpisodeSelector: React.FC<EpisodeSelectorProps> = ({
                               if (videoInfo && videoInfo.quality !== '未知') {
                                 if (videoInfo.hasError) {
                                   return (
-                                    <div className='bg-gray-500/10 dark:bg-gray-400/20 text-red-600 dark:text-red-400 px-1.5 py-0 rounded text-xs flex-shrink-0 min-w-[50px] text-center'>
+                                    <div
+                                      className='bg-gray-500/10 dark:bg-gray-400/20 text-red-600 dark:text-red-400 px-1.5 py-0 rounded text-xs flex-shrink-0 min-w-[50px] text-center'
+                                      title={
+                                        videoInfo.failureReason ||
+                                        '直连与代理测速均失败'
+                                      }
+                                    >
                                       检测失败
                                     </div>
                                   );
@@ -1222,7 +1264,10 @@ const EpisodeSelector: React.FC<EpisodeSelectorProps> = ({
                                   : 'border-gray-500/60'
                               }`}
                             >
-                              {source.source_name}
+                              {getSourceDisplayLabel(
+                                source.source,
+                                source.source_name
+                              )}
                             </span>
                             {source.episodes.length > 1 && (
                               <span
@@ -1274,12 +1319,26 @@ const EpisodeSelector: React.FC<EpisodeSelectorProps> = ({
                                             x
                                           </div>
                                         )}
+                                        {videoInfo.probeMode === 'proxy' && (
+                                          <div
+                                            className='text-sky-600 dark:text-sky-400 font-medium text-xs'
+                                            title='浏览器直连受限，已通过站内代理完成真实分片测速'
+                                          >
+                                            代理测速
+                                          </div>
+                                        )}
                                       </div>
                                     );
                                   } else {
                                     return (
-                                      <div className='text-red-500/90 dark:text-red-400 font-medium text-xs'>
-                                        无测速数据
+                                      <div
+                                        className='text-red-500/90 dark:text-red-400 font-medium text-xs'
+                                        title={
+                                          videoInfo.failureReason ||
+                                          '直连与代理测速均失败'
+                                        }
+                                      >
+                                        直连/代理均失败
                                       </div>
                                     );
                                   }

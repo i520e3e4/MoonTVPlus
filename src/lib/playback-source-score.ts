@@ -80,6 +80,27 @@ export function calculateAbsolutePingScore(pingMs: number): number {
   return 0;
 }
 
+export function calculateSustainableQualityBonus(
+  quality: string,
+  sustainabilityRatio?: number
+): number {
+  // Resolution is promoted only after the measured connection proves that it
+  // has enough throughput headroom. This prevents a nominal 4K stream that
+  // buffers constantly from beating a genuinely playable 1080p stream.
+  if (!sustainabilityRatio || sustainabilityRatio < 1.25) return 0;
+
+  return (
+    {
+      '4K': 22,
+      '2K': 17,
+      '1080p': 12,
+      '720p': 0,
+      '480p': -2,
+      SD: -4,
+    }[quality] ?? 0
+  );
+}
+
 export function calculatePlaybackSourceScore({
   testResult,
   maxSpeedKBps,
@@ -142,5 +163,14 @@ export function calculatePlaybackSourceScore({
 
   const configuredBonus = Math.min(10, Math.max(-10, configuredWeight));
   const preferenceBonus = Math.min(8, Math.max(-8, preferenceScore));
-  return Math.round((score + configuredBonus + preferenceBonus) * 100) / 100;
+  const sustainableQualityBonus = calculateSustainableQualityBonus(
+    testResult.quality,
+    testResult.sustainabilityRatio
+  );
+  return (
+    Math.round(
+      (score + configuredBonus + preferenceBonus + sustainableQualityBonus) *
+        100
+    ) / 100
+  );
 }

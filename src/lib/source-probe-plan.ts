@@ -2,6 +2,9 @@ export interface ProgressiveProbeOptions {
   batchSize: number;
   maxCandidates: number;
   enoughSuccessfulResults: number;
+  shouldStop?: (
+    results: Array<ProgressiveProbeResult<unknown, unknown>>
+  ) => boolean;
 }
 
 export interface ProgressiveProbeResult<TCandidate, TResult> {
@@ -53,7 +56,10 @@ export async function probeCandidatesProgressively<
       (item) => item.result !== null
     ).length;
 
-    if (successfulResults >= enoughSuccessfulResults) break;
+    const customStop = options.shouldStop?.(
+      results as Array<ProgressiveProbeResult<unknown, unknown>>
+    );
+    if (customStop || successfulResults >= enoughSuccessfulResults) break;
   }
 
   return results;

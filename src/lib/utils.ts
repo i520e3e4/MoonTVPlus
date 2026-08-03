@@ -897,7 +897,16 @@ export async function getVideoResolutionFromM3u8(
           clearTimeout(timeout);
           hls.destroy();
           video.remove();
-          reject(new Error(`HLS播放失败: ${data.type}`));
+          const errorType = data.type || 'unknown';
+          const errorDetail = data.details || 'unknown';
+          const status = data.response?.code || data.response?.status;
+          reject(
+            new Error(
+              `HLS ${errorType}/${errorDetail}${
+                status ? ` (HTTP ${status})` : ''
+              }`
+            )
+          );
         }
       });
 
