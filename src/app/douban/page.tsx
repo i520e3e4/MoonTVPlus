@@ -12,6 +12,10 @@ import {
   getDoubanList,
   getDoubanRecommends,
 } from '@/lib/douban.client';
+import {
+  ALL_DOUBAN_YEARS,
+  filterDoubanItemsByYear,
+} from '@/lib/douban-year';
 import { DoubanItem, DoubanResult } from '@/lib/types';
 
 import DoubanCardSkeleton from '@/components/DoubanCardSkeleton';
@@ -40,6 +44,7 @@ function DoubanPageClient() {
     secondarySelection: '',
     multiLevelSelection: {} as Record<string, string>,
     selectedWeekday: '',
+    selectedYear: ALL_DOUBAN_YEARS,
     currentPage: 0,
   });
 
@@ -63,6 +68,7 @@ function DoubanPageClient() {
     if (type === 'show') return 'show';
     return '全部';
   });
+  const [selectedYear, setSelectedYear] = useState(ALL_DOUBAN_YEARS);
 
   // MultiLevelSelector 状态
   const [multiLevelValues, setMultiLevelValues] = useState<
@@ -107,6 +113,7 @@ function DoubanPageClient() {
       secondarySelection,
       multiLevelSelection: multiLevelValues,
       selectedWeekday,
+      selectedYear,
       currentPage,
     };
   }, [
@@ -115,6 +122,7 @@ function DoubanPageClient() {
     secondarySelection,
     multiLevelValues,
     selectedWeekday,
+    selectedYear,
     currentPage,
   ]);
 
@@ -194,6 +202,7 @@ function DoubanPageClient() {
       label: 'all',
       sort: 'T',
     });
+    setSelectedYear(ALL_DOUBAN_YEARS);
 
     // 使用短暂延迟确保状态更新完成后标记选择器准备好
     const timer = setTimeout(() => {
@@ -215,6 +224,7 @@ function DoubanPageClient() {
         secondarySelection: string;
         multiLevelSelection: Record<string, string>;
         selectedWeekday: string;
+        selectedYear: string;
         currentPage: number;
       },
       snapshot2: {
@@ -223,6 +233,7 @@ function DoubanPageClient() {
         secondarySelection: string;
         multiLevelSelection: Record<string, string>;
         selectedWeekday: string;
+        selectedYear: string;
         currentPage: number;
       }
     ) => {
@@ -231,6 +242,7 @@ function DoubanPageClient() {
         snapshot1.primarySelection === snapshot2.primarySelection &&
         snapshot1.secondarySelection === snapshot2.secondarySelection &&
         snapshot1.selectedWeekday === snapshot2.selectedWeekday &&
+        snapshot1.selectedYear === snapshot2.selectedYear &&
         snapshot1.currentPage === snapshot2.currentPage &&
         JSON.stringify(snapshot1.multiLevelSelection) ===
           JSON.stringify(snapshot2.multiLevelSelection)
@@ -265,6 +277,55 @@ function DoubanPageClient() {
     [type, primarySelection, secondarySelection]
   );
 
+  const getYearFilteredRequestParams = useCallback(
+    (pageStart: number) => {
+      if (type === 'movie') {
+        const sort =
+          primarySelection === '最新'
+            ? 'R'
+            : primarySelection === '豆瓣高分'
+            ? 'S'
+            : primarySelection === '热门'
+            ? 'U'
+            : 'T';
+
+        return {
+          kind: 'movie' as const,
+          pageLimit: 25,
+          pageStart,
+          region: secondarySelection === '全部' ? '' : secondarySelection,
+          year: selectedYear,
+          sort,
+          label: primarySelection === '冷门佳片' ? '冷门佳片' : '',
+        };
+      }
+
+      const tvFilterMap: Record<
+        string,
+        { category?: string; format: string; region?: string }
+      > = {
+        tv: { format: '电视剧' },
+        tv_domestic: { format: '电视剧', region: '中国大陆' },
+        tv_american: { format: '电视剧', region: '欧美' },
+        tv_japanese: { format: '电视剧', region: '日本' },
+        tv_korean: { format: '电视剧', region: '韩国' },
+        tv_animation: { category: '动画', format: '电视剧' },
+        tv_documentary: { category: '纪录片', format: '电视剧' },
+      };
+      const filters = tvFilterMap[secondarySelection] || tvFilterMap.tv;
+
+      return {
+        kind: 'tv' as const,
+        pageLimit: 25,
+        pageStart,
+        year: selectedYear,
+        sort: 'U',
+        ...filters,
+      };
+    },
+    [type, primarySelection, secondarySelection, selectedYear]
+  );
+
   // 防抖的数据加载函数
   const loadInitialData = useCallback(async () => {
     // 创建当前参数的快照
@@ -274,6 +335,7 @@ function DoubanPageClient() {
       secondarySelection,
       multiLevelSelection: multiLevelValues,
       selectedWeekday,
+      selectedYear,
       currentPage: 0,
     };
 
@@ -341,7 +403,12 @@ function DoubanPageClient() {
           region: multiLevelValues.region
             ? (multiLevelValues.region as string)
             : '',
-          year: multiLevelValues.year ? (multiLevelValues.year as string) : '',
+          year:
+            selectedYear !== ALL_DOUBAN_YEARS
+              ? selectedYear
+              : multiLevelValues.year
+              ? (multiLevelValues.year as string)
+              : '',
           platform: multiLevelValues.platform
             ? (multiLevelValues.platform as string)
             : '',
@@ -350,6 +417,12 @@ function DoubanPageClient() {
             ? (multiLevelValues.label as string)
             : '',
         });
+      } else if (
+        selectedYear !== ALL_DOUBAN_YEARS &&
+        primarySelection !== '全部' &&
+        (type === 'movie' || type === 'tv')
+      ) {
+        data = await getDoubanRecommends(getYearFilteredRequestParams(0));
       } else if (primarySelection === '全部') {
         data = await getDoubanRecommends({
           kind: type === 'show' ? 'tv' : (type as 'tv' | 'movie'),
@@ -362,7 +435,12 @@ function DoubanPageClient() {
           region: multiLevelValues.region
             ? (multiLevelValues.region as string)
             : '',
-          year: multiLevelValues.year ? (multiLevelValues.year as string) : '',
+          year:
+            selectedYear !== ALL_DOUBAN_YEARS
+              ? selectedYear
+              : multiLevelValues.year
+              ? (multiLevelValues.year as string)
+              : '',
           platform: multiLevelValues.platform
             ? (multiLevelValues.platform as string)
             : '',
@@ -381,7 +459,7 @@ function DoubanPageClient() {
         const currentSnapshot = { ...currentParamsRef.current };
 
         if (isSnapshotEqual(requestSnapshot, currentSnapshot)) {
-          setDoubanData(data.list);
+          setDoubanData(filterDoubanItemsByYear(data.list, selectedYear));
           setHasMore(data.list.length !== 0);
           setLoading(false);
         } else {
@@ -401,7 +479,9 @@ function DoubanPageClient() {
     secondarySelection,
     multiLevelValues,
     selectedWeekday,
+    selectedYear,
     getRequestParams,
+    getYearFilteredRequestParams,
     customCategories,
   ]);
 
@@ -435,6 +515,7 @@ function DoubanPageClient() {
     secondarySelection,
     multiLevelValues,
     selectedWeekday,
+    selectedYear,
     loadInitialData,
   ]);
 
@@ -449,6 +530,7 @@ function DoubanPageClient() {
           secondarySelection,
           multiLevelSelection: multiLevelValues,
           selectedWeekday,
+          selectedYear,
           currentPage,
         };
 
@@ -491,9 +573,12 @@ function DoubanPageClient() {
               region: multiLevelValues.region
                 ? (multiLevelValues.region as string)
                 : '',
-              year: multiLevelValues.year
-                ? (multiLevelValues.year as string)
-                : '',
+              year:
+                selectedYear !== ALL_DOUBAN_YEARS
+                  ? selectedYear
+                  : multiLevelValues.year
+                  ? (multiLevelValues.year as string)
+                  : '',
               platform: multiLevelValues.platform
                 ? (multiLevelValues.platform as string)
                 : '',
@@ -504,6 +589,14 @@ function DoubanPageClient() {
                 ? (multiLevelValues.label as string)
                 : '',
             });
+          } else if (
+            selectedYear !== ALL_DOUBAN_YEARS &&
+            primarySelection !== '全部' &&
+            (type === 'movie' || type === 'tv')
+          ) {
+            data = await getDoubanRecommends(
+              getYearFilteredRequestParams(currentPage * 25)
+            );
           } else if (primarySelection === '全部') {
             data = await getDoubanRecommends({
               kind: type === 'show' ? 'tv' : (type as 'tv' | 'movie'),
@@ -516,9 +609,12 @@ function DoubanPageClient() {
               region: multiLevelValues.region
                 ? (multiLevelValues.region as string)
                 : '',
-              year: multiLevelValues.year
-                ? (multiLevelValues.year as string)
-                : '',
+              year:
+                selectedYear !== ALL_DOUBAN_YEARS
+                  ? selectedYear
+                  : multiLevelValues.year
+                  ? (multiLevelValues.year as string)
+                  : '',
               platform: multiLevelValues.platform
                 ? (multiLevelValues.platform as string)
                 : '',
@@ -541,7 +637,10 @@ function DoubanPageClient() {
             const currentSnapshot = { ...currentParamsRef.current };
 
             if (isSnapshotEqual(requestSnapshot, currentSnapshot)) {
-              setDoubanData((prev) => [...prev, ...data.list]);
+              setDoubanData((prev) => [
+                ...prev,
+                ...filterDoubanItemsByYear(data.list, selectedYear),
+              ]);
               setHasMore(data.list.length !== 0);
             } else {
               console.log('参数不一致，不执行任何操作，避免设置过期数据');
@@ -566,6 +665,8 @@ function DoubanPageClient() {
     customCategories,
     multiLevelValues,
     selectedWeekday,
+    selectedYear,
+    getYearFilteredRequestParams,
   ]);
 
   // 设置滚动监听
@@ -704,6 +805,20 @@ function DoubanPageClient() {
     [secondarySelection]
   );
 
+  const handleYearChange = useCallback(
+    (value: string) => {
+      if (value === selectedYear) return;
+
+      setLoading(true);
+      setCurrentPage(0);
+      setDoubanData([]);
+      setHasMore(true);
+      setIsLoadingMore(false);
+      setSelectedYear(value);
+    },
+    [selectedYear]
+  );
+
   const handleMultiLevelChange = useCallback(
     (values: Record<string, string>) => {
       // 比较两个对象是否相同，忽略顺序
@@ -790,8 +905,10 @@ function DoubanPageClient() {
                 type={type as 'movie' | 'tv' | 'show' | 'anime'}
                 primarySelection={primarySelection}
                 secondarySelection={secondarySelection}
+                yearSelection={selectedYear}
                 onPrimaryChange={handlePrimaryChange}
                 onSecondaryChange={handleSecondaryChange}
+                onYearChange={handleYearChange}
                 onMultiLevelChange={handleMultiLevelChange}
                 onWeekdayChange={handleWeekdayChange}
               />

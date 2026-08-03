@@ -3,7 +3,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 
 import { getConfig } from '@/lib/config';
-import { CURRENT_VERSION } from '@/lib/version';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic'; // 禁用缓存
@@ -35,7 +34,6 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({
       SiteName: process.env.NEXT_PUBLIC_SITE_NAME || 'MoonTVPlus',
       StorageType: 'localstorage',
-      Version: CURRENT_VERSION,
       TVModeEnabled: process.env.ENABLE_TV_MODE !== 'false',
       WatchRoom: watchRoomConfig,
       EnableOfflineDownload: process.env.NEXT_PUBLIC_ENABLE_OFFLINE_DOWNLOAD === 'true',
@@ -49,7 +47,6 @@ export async function GET(request: NextRequest) {
   const result = {
     SiteName: config.SiteConfig.SiteName,
     StorageType: storageType,
-    Version: CURRENT_VERSION,
     TVModeEnabled: process.env.ENABLE_TV_MODE !== 'false',
     WatchRoom: watchRoomConfig,
     EnableOfflineDownload: process.env.NEXT_PUBLIC_ENABLE_OFFLINE_DOWNLOAD === 'true',

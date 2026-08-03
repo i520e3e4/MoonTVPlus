@@ -4,6 +4,11 @@
 
 import React, { useEffect, useRef, useState } from 'react';
 
+import {
+  ALL_DOUBAN_YEARS,
+  createDoubanYearOptions,
+} from '@/lib/douban-year';
+
 import MultiLevelSelector from './MultiLevelSelector';
 import WeekdaySelector from './WeekdaySelector';
 
@@ -12,12 +17,16 @@ interface SelectorOption {
   value: string;
 }
 
+const DOUBAN_YEAR_OPTIONS = createDoubanYearOptions();
+
 interface DoubanSelectorProps {
   type: 'movie' | 'tv' | 'show' | 'anime';
   primarySelection?: string;
   secondarySelection?: string;
+  yearSelection: string;
   onPrimaryChange: (value: string) => void;
   onSecondaryChange: (value: string) => void;
+  onYearChange: (value: string) => void;
   onMultiLevelChange?: (values: Record<string, string>) => void;
   onWeekdayChange: (weekday: string) => void;
 }
@@ -26,8 +35,10 @@ const DoubanSelector: React.FC<DoubanSelectorProps> = ({
   type,
   primarySelection,
   secondarySelection,
+  yearSelection,
   onPrimaryChange,
   onSecondaryChange,
+  onYearChange,
   onMultiLevelChange,
   onWeekdayChange,
 }) => {
@@ -351,6 +362,30 @@ const DoubanSelector: React.FC<DoubanSelectorProps> = ({
     );
   };
 
+  const renderYearSelector = () => (
+    <div className='flex flex-col sm:flex-row sm:items-center gap-2'>
+      <label
+        htmlFor={`douban-year-${type}`}
+        className='text-xs sm:text-sm font-medium text-gray-600 dark:text-gray-400 min-w-[48px]'
+      >
+        年份
+      </label>
+      <select
+        id={`douban-year-${type}`}
+        value={yearSelection || ALL_DOUBAN_YEARS}
+        onChange={(event) => onYearChange(event.target.value)}
+        className='w-full sm:w-auto min-w-[132px] rounded-full border border-gray-300/70 dark:border-gray-600/70 bg-gray-200/60 dark:bg-gray-700/60 px-4 py-2 text-xs sm:text-sm font-medium text-gray-800 dark:text-gray-100 outline-none transition-colors hover:bg-gray-200 dark:hover:bg-gray-700 focus:border-green-500 focus:ring-2 focus:ring-green-500/30'
+        aria-label='按发行年份筛选'
+      >
+        {DOUBAN_YEAR_OPTIONS.map((option) => (
+          <option key={option.value} value={option.value}>
+            {option.label}
+          </option>
+        ))}
+      </select>
+    </div>
+  );
+
   return (
     <div className='space-y-4 sm:space-y-6'>
       {/* 电影类型 - 显示两级选择器 */}
@@ -401,6 +436,8 @@ const DoubanSelector: React.FC<DoubanSelectorProps> = ({
               </div>
             </div>
           )}
+
+          {renderYearSelector()}
         </div>
       )}
 
@@ -452,6 +489,8 @@ const DoubanSelector: React.FC<DoubanSelectorProps> = ({
               </div>
             </div>
           ) : null}
+
+          {renderYearSelector()}
         </div>
       )}
 

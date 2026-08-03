@@ -38,8 +38,6 @@ import { createPortal } from 'react-dom';
 
 import { getAuthInfoFromBrowserCookie } from '@/lib/auth';
 import { clearBangumiImageFallbackCache } from '@/lib/utils';
-import { CURRENT_VERSION } from '@/lib/version';
-import { UpdateStatus } from '@/lib/version_check';
 
 import { DeviceManagementPanel } from './DeviceManagementPanel';
 import { DownloadManagementPanel } from './DownloadManagementPanel';
@@ -49,8 +47,6 @@ import { NotificationPanel } from './NotificationPanel';
 import { OfflineDownloadPanel } from './OfflineDownloadPanel';
 import { PersonalCenterPanel } from './PersonalCenterPanel';
 import TVRemotePanel from './tv/TVRemotePanel';
-import { useVersionCheck } from './VersionCheckProvider';
-import { VersionPanel } from './VersionPanel';
 
 interface AuthInfo {
   username?: string;
@@ -59,13 +55,11 @@ interface AuthInfo {
 
 export const UserMenu: React.FC = () => {
   const router = useRouter();
-  const { updateStatus, isChecking } = useVersionCheck();
   const [isOpen, setIsOpen] = useState(false);
   const [isProfileCenterOpen, setIsProfileCenterOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isChangePasswordOpen, setIsChangePasswordOpen] = useState(false);
   const [isSubscribeOpen, setIsSubscribeOpen] = useState(false);
-  const [isVersionPanelOpen, setIsVersionPanelOpen] = useState(false);
   const [isOfflineDownloadPanelOpen, setIsOfflineDownloadPanelOpen] =
     useState(false);
   const [isNotificationPanelOpen, setIsNotificationPanelOpen] = useState(false);
@@ -2235,34 +2229,6 @@ export const UserMenu: React.FC = () => {
             <span className='font-medium'>登出</span>
           </button>
 
-          {/* 分割线 */}
-          <div className='my-1 border-t border-gray-200 dark:border-gray-700'></div>
-
-          {/* 版本信息 */}
-          <button
-            onClick={() => {
-              setIsVersionPanelOpen(true);
-              handleCloseMenu();
-            }}
-            className='w-full px-3 py-2 text-center flex items-center justify-center text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors text-xs'
-          >
-            <div className='flex items-center gap-1'>
-              <span className='font-mono'>v{CURRENT_VERSION}</span>
-              {!isChecking &&
-                updateStatus &&
-                updateStatus !== UpdateStatus.FETCH_FAILED && (
-                  <div
-                    className={`w-2 h-2 rounded-full -translate-y-2 ${
-                      updateStatus === UpdateStatus.HAS_UPDATE
-                        ? 'bg-yellow-500'
-                        : updateStatus === UpdateStatus.NO_UPDATE
-                        ? 'bg-green-400'
-                        : ''
-                    }`}
-                  ></div>
-                )}
-            </div>
-          </button>
         </div>
       </div>
     </>
@@ -4811,10 +4777,6 @@ export const UserMenu: React.FC = () => {
         >
           <User className='w-full h-full' />
         </button>
-        {/* 版本更新红点 */}
-        {updateStatus === UpdateStatus.HAS_UPDATE && (
-          <div className='absolute top-[2px] right-[2px] w-2 h-2 bg-yellow-500 rounded-full'></div>
-        )}
         {/* 未读通知红点 */}
         {unreadCount > 0 && (
           <div className='absolute top-[2px] right-[2px] w-2 h-2 bg-red-500 rounded-full'></div>
@@ -4863,12 +4825,6 @@ export const UserMenu: React.FC = () => {
       {isSubscribeOpen &&
         mounted &&
         createPortal(subscribePanel, document.body)}
-
-      {/* 版本面板 */}
-      <VersionPanel
-        isOpen={isVersionPanelOpen}
-        onClose={() => setIsVersionPanelOpen(false)}
-      />
 
       {/* 离线下载面板 */}
       <OfflineDownloadPanel

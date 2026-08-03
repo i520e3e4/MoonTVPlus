@@ -3,8 +3,6 @@
 import { useRouter } from 'next/navigation';
 import { Suspense, useEffect, useState } from 'react';
 
-import { CURRENT_VERSION } from '@/lib/version';
-
 import { useSite } from '@/components/SiteProvider';
 import { ThemeToggle } from '@/components/ThemeToggle';
 
@@ -159,10 +157,6 @@ function OIDCRegisterPageClient() {
         </form>
       </div>
 
-      {/* 版本信息 */}
-      <div className='absolute bottom-4 left-1/2 transform -translate-x-1/2 text-xs text-gray-500 dark:text-gray-400'>
-        <span className='font-mono'>v{CURRENT_VERSION}</span>
-      </div>
     </div>
   );
 }

@@ -17,7 +17,6 @@ import RouteScrollReset from '../components/RouteScrollReset';
 import { SiteProvider } from '../components/SiteProvider';
 import { TokenRefreshManager } from '../components/TokenRefreshManager';
 import TopProgressBar from '../components/TopProgressBar';
-import { VersionCheckProvider } from '../components/VersionCheckProvider';
 import { WatchRoomProvider } from '../components/WatchRoomProvider';
 import { DownloadProvider } from '../contexts/DownloadContext';
 
@@ -417,15 +416,13 @@ export default async function RootLayout({
           announcementDisplayMode={announcementDisplayMode}
           tmdbApiKey={tmdbApiKey}
         >
-          <VersionCheckProvider>
-            <WatchRoomProvider>
-              <DownloadProvider>
-                {children}
-                <GlobalErrorIndicator />
-                <DeferredGlobalOverlays />
-              </DownloadProvider>
-            </WatchRoomProvider>
-          </VersionCheckProvider>
+          <WatchRoomProvider>
+            <DownloadProvider>
+              {children}
+              <GlobalErrorIndicator />
+              <DeferredGlobalOverlays />
+            </DownloadProvider>
+          </WatchRoomProvider>
         </SiteProvider>
       </body>
     </html>

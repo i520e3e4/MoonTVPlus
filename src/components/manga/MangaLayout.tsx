@@ -6,7 +6,6 @@ import { usePathname, useSearchParams } from 'next/navigation';
 
 import { useSite } from '@/components/SiteProvider';
 import { ThemeToggle } from '@/components/ThemeToggle';
-import { UpdateNotification } from '@/components/UpdateNotification';
 import { UserMenu } from '@/components/UserMenu';
 
 interface MangaLayoutProps {
@@ -149,7 +148,6 @@ export default function MangaLayout({ children }: MangaLayoutProps) {
               <>
                 <ThemeToggle />
                 <UserMenu />
-                <UpdateNotification />
               </>
             )}
           </div>

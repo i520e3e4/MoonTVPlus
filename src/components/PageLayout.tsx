@@ -6,7 +6,6 @@ import { BackButton } from './BackButton';
 import MobileBottomNav from './MobileBottomNav';
 import MobileHeader from './MobileHeader';
 import Sidebar from './Sidebar';
-import { UpdateNotification } from './UpdateNotification';
 import { UserMenu } from './UserMenu';
 
 interface PageLayoutProps {
@@ -99,7 +98,6 @@ const PageLayout = ({
           {!hideNavigation && (
             <div className='fixed top-2 right-4 z-[900] hidden md:flex items-center gap-2'>
               <UserMenu />
-              <UpdateNotification />
             </div>
           )}
 

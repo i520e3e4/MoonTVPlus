@@ -4,7 +4,6 @@ import Link from 'next/link';
 
 import { BackButton } from './BackButton';
 import { useSite } from './SiteProvider';
-import { UpdateNotification } from './UpdateNotification';
 import { UserMenu } from './UserMenu';
 
 interface MobileHeaderProps {
@@ -46,7 +45,6 @@ const MobileHeader = ({ showBackButton = false }: MobileHeaderProps) => {
         {/* 右侧按钮 */}
         <div className='flex items-center gap-2'>
           <UserMenu />
-          <UpdateNotification />
         </div>
 
         {/* 中间：Logo（相对内容行居中，避免被 safe-area 顶偏） */}
