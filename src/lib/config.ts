@@ -4,7 +4,6 @@ import { db } from '@/lib/db';
 
 import { AdminConfig } from './admin.types';
 
-const BUILTIN_DANMAKU_API_BASE = 'https://mtvpls-danmu.netlify.app/87654321';
 const DEFAULT_LIVE_REFRESH_INTERVAL_HOURS = 12;
 
 function normalizeLiveRefreshIntervalHours(
@@ -262,9 +261,6 @@ async function getInitConfig(
   } catch (e) {
     cfgFile = {} as ConfigFileStruct;
   }
-  const hasCustomDanmakuEnv = Boolean(
-    process.env.DANMAKU_API_BASE || process.env.DANMAKU_API_TOKEN
-  );
   const adminConfig: AdminConfig = {
     ConfigFile: configSource,
     ConfigSubscribtion: subConfig,
@@ -290,15 +286,6 @@ async function getInitConfig(
       DisableYellowFilter:
         process.env.NEXT_PUBLIC_DISABLE_YELLOW_FILTER === 'true',
       FluidSearch: process.env.NEXT_PUBLIC_FLUID_SEARCH !== 'false',
-      // 弹幕配置
-      DanmakuSourceType: hasCustomDanmakuEnv ? 'custom' : 'builtin',
-      DanmakuApiBase:
-        process.env.DANMAKU_API_BASE ||
-        (hasCustomDanmakuEnv
-          ? 'http://localhost:9321'
-          : BUILTIN_DANMAKU_API_BASE),
-      DanmakuApiToken: process.env.DANMAKU_API_TOKEN || '87654321',
-      DanmakuAutoLoadDefault: true,
       // TMDB配置
       TMDBApiKey: process.env.TMDB_API_KEY || '',
       TMDBProxy: process.env.TMDB_PROXY || '',
@@ -534,10 +521,6 @@ export function configSelfCheck(adminConfig: AdminConfig): AdminConfig {
       DoubanImageProxy: '',
       DisableYellowFilter: false,
       FluidSearch: true,
-      DanmakuSourceType: 'builtin',
-      DanmakuApiBase: BUILTIN_DANMAKU_API_BASE,
-      DanmakuApiToken: '87654321',
-      DanmakuAutoLoadDefault: true,
       PansouApiUrl: '',
       PansouUsername: '',
       PansouPassword: '',
@@ -557,22 +540,6 @@ export function configSelfCheck(adminConfig: AdminConfig): AdminConfig {
       TurnstileSecretKey: '',
       DefaultUserTags: [],
     };
-  }
-  // 确保弹幕配置存在
-  if (adminConfig.SiteConfig.DanmakuSourceType === undefined) {
-    adminConfig.SiteConfig.DanmakuSourceType = 'custom';
-  }
-  if (!adminConfig.SiteConfig.DanmakuApiBase) {
-    adminConfig.SiteConfig.DanmakuApiBase =
-      adminConfig.SiteConfig.DanmakuSourceType === 'builtin'
-        ? BUILTIN_DANMAKU_API_BASE
-        : 'http://localhost:9321';
-  }
-  if (!adminConfig.SiteConfig.DanmakuApiToken) {
-    adminConfig.SiteConfig.DanmakuApiToken = '87654321';
-  }
-  if (adminConfig.SiteConfig.DanmakuAutoLoadDefault === undefined) {
-    adminConfig.SiteConfig.DanmakuAutoLoadDefault = true;
   }
   // 确保评论开关存在
   if (adminConfig.SiteConfig.EnableComments === undefined) {

@@ -18,11 +18,6 @@ export interface AdminConfig {
     DoubanImageProxy: string;
     DisableYellowFilter: boolean;
     FluidSearch: boolean;
-    // 弹幕配置
-    DanmakuSourceType?: 'builtin' | 'custom';
-    DanmakuApiBase: string;
-    DanmakuApiToken: string;
-    DanmakuAutoLoadDefault?: boolean; // 是否默认自动加载弹幕（用户可在本地覆盖）
     // TMDB配置
     TMDBApiKey?: string;
     TMDBProxy?: string;

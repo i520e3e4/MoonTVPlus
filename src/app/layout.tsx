@@ -11,7 +11,6 @@ import { getConfig } from '@/lib/config';
 import { getUserFeatureAccess } from '@/lib/permissions';
 import { listEnabledSourceScripts } from '@/lib/source-script';
 
-import { StartupCacheCleanup } from '../components/DanmakuCacheCleanup';
 import { DeferredGlobalOverlays } from '../components/DeferredGlobalOverlays';
 import { GlobalErrorIndicator } from '../components/GlobalErrorIndicator';
 import RouteScrollReset from '../components/RouteScrollReset';
@@ -76,7 +75,6 @@ export default async function RootLayout({
     process.env.NEXT_PUBLIC_DISABLE_YELLOW_FILTER === 'true';
   let fluidSearch = process.env.NEXT_PUBLIC_FLUID_SEARCH !== 'false';
   let enableComments = false;
-  let danmakuAutoLoadDefault = true;
   let recommendationDataSource = 'Mixed';
   let tmdbApiKey = '';
   let bangumiDataSource =
@@ -169,7 +167,6 @@ export default async function RootLayout({
     }));
     fluidSearch = config.SiteConfig.FluidSearch;
     enableComments = config.SiteConfig.EnableComments;
-    danmakuAutoLoadDefault = config.SiteConfig.DanmakuAutoLoadDefault !== false;
     recommendationDataSource =
       config.SiteConfig.RecommendationDataSource || 'Mixed';
     tmdbApiKey = config.SiteConfig.TMDBApiKey || '';
@@ -279,7 +276,6 @@ export default async function RootLayout({
     CUSTOM_CATEGORIES: customCategories,
     FLUID_SEARCH: fluidSearch,
     EnableComments: enableComments,
-    DANMAKU_AUTO_LOAD_DEFAULT: danmakuAutoLoadDefault,
     RecommendationDataSource: recommendationDataSource,
     BANGUMI_DATA_SOURCE: bangumiDataSource,
     BANGUMI_API_BASE_URL: bangumiApiBaseUrl,
@@ -424,7 +420,6 @@ export default async function RootLayout({
           <VersionCheckProvider>
             <WatchRoomProvider>
               <DownloadProvider>
-                <StartupCacheCleanup />
                 {children}
                 <GlobalErrorIndicator />
                 <DeferredGlobalOverlays />

@@ -59,9 +59,6 @@ importers:
       artplayer-plugin-auto-thumbnail:
         specifier: ^1.1.0
         version: 1.1.0
-      artplayer-plugin-danmuku:
-        specifier: ^5.2.0
-        version: 5.2.0
       artplayer-plugin-jassub:
         specifier: 1.1.0
         version: 1.1.0
@@ -4619,9 +4616,6 @@ packages:
 
   artplayer-plugin-auto-thumbnail@1.1.0:
     resolution: {integrity: sha512-ALrcLv+qEDime+R8p4628RZTfMGlrpX6d7PLIQaYWsQEN3lPzVjcVcARCFpqnFI8gvRdqt21w72sJphf50xtVw==}
-
-  artplayer-plugin-danmuku@5.2.0:
-    resolution: {integrity: sha512-iHHSGEc0J+gl7imX4nmLqqC7LXmv8xeGf2lUevhhyUCoiCRZplecpKQICHjErVb1Yqyp1xCy6Sp8eYN+EpFWFw==}
 
   artplayer-plugin-jassub@1.1.0:
     resolution: {integrity: sha512-vQwEtZMmkwr5utbxfUAeE/gRccl2nfcz+SYP2Subn/L8cVIFdMXWMgicm7ZkPVtAoBbCav7p0yP4pwXkCKMzAg==}
@@ -16482,8 +16476,6 @@ snapshots:
   arrify@2.0.1: {}
 
   artplayer-plugin-auto-thumbnail@1.1.0: {}
-
-  artplayer-plugin-danmuku@5.2.0: {}
 
   artplayer-plugin-jassub@1.1.0: {}
 

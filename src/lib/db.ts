@@ -1,21 +1,15 @@
 /* eslint-disable no-console, @typescript-eslint/no-explicit-any, @typescript-eslint/no-non-null-assertion */
 
 import { AdminConfig } from './admin.types';
+import { BookReadRecord, BookShelfItem } from './book.types';
 import { MusicPlayRecord } from './db.client';
 import { MangaReadRecord, MangaShelfItem } from './manga.types';
-import { BookReadRecord, BookShelfItem } from './book.types';
 import {
   MusicV2HistoryRecord,
   MusicV2PlaylistItem,
   MusicV2PlaylistRecord,
 } from './music-v2';
-import {
-  DanmakuFilterConfig,
-  Favorite,
-  IStorage,
-  PlayRecord,
-  SkipConfig,
-} from './types';
+import { Favorite, IStorage, PlayRecord, SkipConfig } from './types';
 
 // storage type 常量: 'localstorage' | 'redis' | 'upstash' | 'kvrocks' | 'd1' | 'postgres' | 'turso'，默认 'localstorage'
 const IS_CLOUDFLARE_BUILD =
@@ -1080,31 +1074,6 @@ export class DbManager {
       return (this.storage as any).getAllSkipConfigs(userName);
     }
     return {};
-  }
-
-  // ---------- 弹幕过滤配置 ----------
-  async getDanmakuFilterConfig(
-    userName: string
-  ): Promise<DanmakuFilterConfig | null> {
-    if (typeof (this.storage as any).getDanmakuFilterConfig === 'function') {
-      return (this.storage as any).getDanmakuFilterConfig(userName);
-    }
-    return null;
-  }
-
-  async setDanmakuFilterConfig(
-    userName: string,
-    config: DanmakuFilterConfig
-  ): Promise<void> {
-    if (typeof (this.storage as any).setDanmakuFilterConfig === 'function') {
-      await (this.storage as any).setDanmakuFilterConfig(userName, config);
-    }
-  }
-
-  async deleteDanmakuFilterConfig(userName: string): Promise<void> {
-    if (typeof (this.storage as any).deleteDanmakuFilterConfig === 'function') {
-      await (this.storage as any).deleteDanmakuFilterConfig(userName);
-    }
   }
 
   // ---------- 数据清理 ----------

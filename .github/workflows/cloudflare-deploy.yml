@@ -49,7 +49,6 @@ jobs:
           echo "NEXT_PUBLIC_DOUBAN_IMAGE_PROXY=${{ secrets.NEXT_PUBLIC_DOUBAN_IMAGE_PROXY }}" >> $GITHUB_ENV
           echo "NEXT_PUBLIC_DISABLE_YELLOW_FILTER=${{ secrets.NEXT_PUBLIC_DISABLE_YELLOW_FILTER }}" >> $GITHUB_ENV
           echo "NEXT_PUBLIC_FLUID_SEARCH=${{ secrets.NEXT_PUBLIC_FLUID_SEARCH }}" >> $GITHUB_ENV
-          echo "NEXT_PUBLIC_DANMAKU_CACHE_EXPIRE_MINUTES=${{ secrets.NEXT_PUBLIC_DANMAKU_CACHE_EXPIRE_MINUTES }}" >> $GITHUB_ENV
           echo "NEXT_PUBLIC_VOICE_CHAT_STRATEGY=${{ secrets.NEXT_PUBLIC_VOICE_CHAT_STRATEGY }}" >> $GITHUB_ENV
           echo "NEXT_PUBLIC_ENABLE_OFFLINE_DOWNLOAD=${{ secrets.NEXT_PUBLIC_ENABLE_OFFLINE_DOWNLOAD }}" >> $GITHUB_ENV
           echo "NEXT_PUBLIC_ENABLE_SOURCE_SEARCH=${{ secrets.NEXT_PUBLIC_ENABLE_SOURCE_SEARCH }}" >> $GITHUB_ENV
@@ -60,8 +59,6 @@ jobs:
           echo "TMDB_API_KEY=${{ secrets.TMDB_API_KEY }}" >> $GITHUB_ENV
           echo "TMDB_PROXY=${{ secrets.TMDB_PROXY }}" >> $GITHUB_ENV
           echo "TMDB_REVERSE_PROXY=${{ secrets.TMDB_REVERSE_PROXY }}" >> $GITHUB_ENV
-          echo "DANMAKU_API_BASE=${{ secrets.DANMAKU_API_BASE }}" >> $GITHUB_ENV
-          echo "DANMAKU_API_TOKEN=${{ secrets.DANMAKU_API_TOKEN }}" >> $GITHUB_ENV
           echo "ANNOUNCEMENT=${{ secrets.ANNOUNCEMENT }}" >> $GITHUB_ENV
           echo "CRON_PASSWORD=${{ secrets.CRON_PASSWORD }}" >> $GITHUB_ENV
           echo "SITE_BASE=${{ secrets.SITE_BASE }}" >> $GITHUB_ENV
@@ -126,7 +123,6 @@ jobs:
           append_var "NEXT_PUBLIC_DISABLE_YELLOW_FILTER" "${{ secrets.NEXT_PUBLIC_DISABLE_YELLOW_FILTER }}"
           append_var "NEXT_PUBLIC_FLUID_SEARCH" "${{ secrets.NEXT_PUBLIC_FLUID_SEARCH }}"
           append_var "NEXT_PUBLIC_PROXY_M3U8_TOKEN" "${{ secrets.NEXT_PUBLIC_PROXY_M3U8_TOKEN }}"
-          append_var "NEXT_PUBLIC_DANMAKU_CACHE_EXPIRE_MINUTES" "${{ secrets.NEXT_PUBLIC_DANMAKU_CACHE_EXPIRE_MINUTES }}"
           append_var "NEXT_PUBLIC_VOICE_CHAT_STRATEGY" "${{ secrets.NEXT_PUBLIC_VOICE_CHAT_STRATEGY }}"
           append_var "NEXT_PUBLIC_ENABLE_OFFLINE_DOWNLOAD" "${{ secrets.NEXT_PUBLIC_ENABLE_OFFLINE_DOWNLOAD }}"
           append_var "NEXT_PUBLIC_ENABLE_SOURCE_SEARCH" "${{ secrets.NEXT_PUBLIC_ENABLE_SOURCE_SEARCH }}"
@@ -137,8 +133,6 @@ jobs:
           append_var "TMDB_API_KEY" "${{ secrets.TMDB_API_KEY }}"
           append_var "TMDB_PROXY" "${{ secrets.TMDB_PROXY }}"
           append_var "TMDB_REVERSE_PROXY" "${{ secrets.TMDB_REVERSE_PROXY }}"
-          append_var "DANMAKU_API_BASE" "${{ secrets.DANMAKU_API_BASE }}"
-          append_var "DANMAKU_API_TOKEN" "${{ secrets.DANMAKU_API_TOKEN }}"
           append_var "ANNOUNCEMENT" "${{ secrets.ANNOUNCEMENT }}"
           append_var "CRON_PASSWORD" "${{ secrets.CRON_PASSWORD }}"
           append_var "SITE_BASE" "${{ secrets.SITE_BASE }}"

@@ -1,17 +1,17 @@
 /* eslint-disable no-console, @typescript-eslint/no-explicit-any, @typescript-eslint/no-non-null-assertion */
 
 import { AdminConfig } from './admin.types';
-import { MangaReadRecord, MangaShelfItem } from './manga.types';
 import { BookReadRecord, BookShelfItem } from './book.types';
+import { MangaReadRecord, MangaShelfItem } from './manga.types';
 import {
   MusicV2HistoryRecord,
   MusicV2PlaylistItem,
   MusicV2PlaylistRecord,
 } from './music-v2';
-import { RedisAdapter } from './redis-adapter';
-import { Favorite, IStorage, Notification, PlayRecord, PushSubscriptionRecord, SkipConfig } from './types';
-import { userInfoCache } from './user-cache';
 import { dispatchNotificationChannels } from './notification-dispatch';
+import { RedisAdapter } from './redis-adapter';
+import { Favorite, IStorage, PlayRecord, PushSubscriptionRecord, SkipConfig } from './types';
+import { userInfoCache } from './user-cache';
 
 // 搜索历史最大条数
 const SEARCH_HISTORY_LIMIT = 20;
@@ -1892,10 +1892,6 @@ export abstract class BaseRedisStorage implements IStorage {
     return `u:${user}:skip`; // u:username:skip (hash结构)
   }
 
-  private danmakuFilterConfigKey(user: string) {
-    return `u:${user}:danmaku_filter`;
-  }
-
   async getSkipConfig(
     userName: string,
     source: string,
@@ -2023,36 +2019,6 @@ export abstract class BaseRedisStorage implements IStorage {
     userInfoCache?.delete(userName);
 
     console.log(`用户 ${userName} 的跳过配置迁移完成`);
-  }
-
-  // ---------- 弹幕过滤配置 ----------
-  async getDanmakuFilterConfig(
-    userName: string
-  ): Promise<import('./types').DanmakuFilterConfig | null> {
-    const val = await this.withRetry(() =>
-      this.adapter.get(this.danmakuFilterConfigKey(userName))
-    );
-    return val
-      ? (JSON.parse(val) as import('./types').DanmakuFilterConfig)
-      : null;
-  }
-
-  async setDanmakuFilterConfig(
-    userName: string,
-    config: import('./types').DanmakuFilterConfig
-  ): Promise<void> {
-    await this.withRetry(() =>
-      this.adapter.set(
-        this.danmakuFilterConfigKey(userName),
-        JSON.stringify(config)
-      )
-    );
-  }
-
-  async deleteDanmakuFilterConfig(userName: string): Promise<void> {
-    await this.withRetry(() =>
-      this.adapter.del(this.danmakuFilterConfigKey(userName))
-    );
   }
 
   // 清空所有数据

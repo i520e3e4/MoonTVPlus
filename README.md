@@ -6,7 +6,7 @@
 
 ## ⚠️ 请某些人停止你的抄袭行为，不要我上什么功能你就抄什么，借鉴≠抄袭
 
-> 🎬 **MoonTVPlus** 是基于 [MoonTV v100](https://github.com/MoonTechLab/LunaTV) 二次开发的增强版影视聚合播放器。它在原版基础上新增了外部播放器支持、视频超分、弹幕系统、评论抓取等实用功能，提供更强大的观影体验。
+> 🎬 **MoonTVPlus** 是基于 [MoonTV v100](https://github.com/MoonTechLab/LunaTV) 二次开发的增强版影视聚合播放器。它在原版基础上新增了外部播放器支持、视频超分、评论抓取等实用功能，提供更强大的观影体验。
 
 <div align="center">
 
@@ -25,7 +25,6 @@
 
 - 🎮 **外部播放器跳转**：支持 PotPlayer、VLC、MPV、MX Player、nPlayer、IINA 等多种外部播放器
 - ✨ **视频超分 (Anime4K)**：使用 WebGPU 技术实现实时视频画质增强（支持 1.5x/2x/3x/4x 超分）
-- 💬 **弹幕系统**：完整的弹幕搜索、匹配、加载功能，支持弹幕设置持久化、弹幕屏蔽
 - 📝 **豆瓣评论抓取**：自动抓取并展示豆瓣电影短评，支持分页加载
 - 🧩 **视频源脚本**：支持通过脚本自定义视频源、搜索、详情与播放解析逻辑（实验性）
 - 🪒**自定义去广告**：你可以自定义你的去广告代码，实现更强力的去广告功能
@@ -65,7 +64,6 @@
 - [自动更新](#自动更新)
 - [环境变量](#环境变量)
 - [外部观影室服务器部署](#外部观影室服务器部署)
-- [弹幕后端部署](#弹幕后端部署)
 - [超分功能说明](#超分功能说明)
 - [AndroidTV 使用](#androidtv-使用)
 - [TVBOX 订阅功能](#tvbox-订阅功能)
@@ -487,7 +485,6 @@ dockge/komodo 等 docker compose UI 也有自动更新功能
 | NEXT_PUBLIC_DISABLE_YELLOW_FILTER        | 关闭色情内容过滤                                             | true/false                  | false                                                        |
 | NEXT_PUBLIC_FLUID_SEARCH                 | 是否开启搜索接口流式输出                                     | true/ false                 | true                                                         |
 | NEXT_PUBLIC_PROXY_M3U8_TOKEN             | M3U8 代理 API 鉴权 Token（外部播放器跳转时的鉴权token，不填为无鉴权） | 任意字符串                  | (空)                                                         |
-| NEXT_PUBLIC_DANMAKU_CACHE_EXPIRE_MINUTES | 弹幕缓存失效时间（分钟数，设为 0 时不缓存）                  | 0 或正整数                  | 4320（3天）                                                  |
 | ENABLE_TV_MODE                           | 是否启用 TV 模式；设为 false 后 /tv 不可访问，且不启动电视遥控 Socket.IO 监听 | true/false                  | true                                                         |
 | ENABLE_TVBOX_SUBSCRIBE                   | 是否启用 TVBOX 订阅功能                                      | true/false                  | false                                                        |
 | TVBOX_SUBSCRIBE_TOKEN                    | TVBOX 订阅 API 访问 Token，如启用TVBOX功能必须设置该项       | 任意字符串                  | (空)                                                         |
@@ -509,8 +506,6 @@ dockge/komodo 等 docker compose UI 也有自动更新功能
 | TMDB_API_KEY                             | TMDB API 密钥                                                | 任意字符串                  | (空)                                                         |
 | TMDB_PROXY                               | TMDB 代理地址                                                | URL                         | (空)                                                         |
 | TMDB_REVERSE_PROXY                       | TMDB 反向代理地址                                            | URL                         | (空)                                                         |
-| DANMAKU_API_BASE                         | 弹幕 API 地址                                                | URL                         | http://localhost:9321                                        |
-| DANMAKU_API_TOKEN                        | 弹幕 API Token                                               | 任意字符串                  | 87654321                                                     |
 | DATA_MIGRATION_CHUNK_SIZE                | 数据迁移批处理大小（控制导入导出时每批处理的用户数量和数据条数） | 正整数                      | 10                                                           |
 | QR_LOGIN_STORE_MODE                      | 电视端扫码登录状态存储模式；serverless环境下多节点内存状态不可靠。 | auto、memory、hybrid、shared | auto                                                         |
 | WEB_PUSH_PROXY                           | Web Push 服务端发送代理地址，用于服务器访问 FCM 等 Push endpoint | HTTP/HTTPS 代理 URL          | (空)                                                         |
@@ -583,19 +578,6 @@ NEXT_PUBLIC_VOICE_CHAT_STRATEGY 选项解释：
    ```
 
 3. 重启应用即可使用外部观影室服务器
-
-
-
-## 弹幕后端部署
-
-要使用弹幕功能，需要额外部署弹幕 API 后端服务。
-
-### 部署步骤
-
-1. 按照[danmu_api](https://github.com/huangxd-/danmu_api.git)教程部署后端
-2. 建议配置SOURCE_ORDER或PLATFORM_ORDER环境变量，默认弹幕源很少
-3. 在管理面板设置后端地址
-
 
 
 

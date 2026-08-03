@@ -17,7 +17,6 @@ import {
   Globe,
   Home,
   LogOut,
-  MessageSquare,
   Monitor,
   MoveDown,
   MoveUp,
@@ -38,7 +37,6 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 
 import { getAuthInfoFromBrowserCookie } from '@/lib/auth';
-import { clearAllDanmakuCache, getDanmakuCacheStats } from '@/lib/danmaku/api';
 import { clearBangumiImageFallbackCache } from '@/lib/utils';
 import { CURRENT_VERSION } from '@/lib/version';
 import { UpdateStatus } from '@/lib/version_check';
@@ -202,11 +200,6 @@ export const UserMenu: React.FC = () => {
   ] = useState(false);
   const [bufferStrategy, setBufferStrategy] = useState('medium');
   const [nextEpisodePreCache, setNextEpisodePreCache] = useState(true);
-  const [nextEpisodeDanmakuPreload, setNextEpisodeDanmakuPreload] =
-    useState(true);
-  const [disableAutoLoadDanmaku, setDisableAutoLoadDanmaku] = useState(false);
-  const [danmakuMaxCount, setDanmakuMaxCount] = useState(0);
-  const [danmakuHeatmapDisabled, setDanmakuHeatmapDisabled] = useState(false);
   const [searchTraditionalToSimplified, setSearchTraditionalToSimplified] =
     useState(false);
   const [exactSearch, setExactSearch] = useState(true);
@@ -266,7 +259,6 @@ export const UserMenu: React.FC = () => {
   const [isUsageSectionOpen, setIsUsageSectionOpen] = useState(false);
   const [isDownloadSectionOpen, setIsDownloadSectionOpen] = useState(false);
   const [isBufferSectionOpen, setIsBufferSectionOpen] = useState(false);
-  const [isDanmakuSectionOpen, setIsDanmakuSectionOpen] = useState(false);
   const [isHomepageSectionOpen, setIsHomepageSectionOpen] = useState(false);
 
   // 首页模块配置
@@ -359,13 +351,6 @@ export const UserMenu: React.FC = () => {
   const [passwordLoading, setPasswordLoading] = useState(false);
   const [passwordError, setPasswordError] = useState('');
 
-  // 清除弹幕缓存相关状态
-  const [isClearingCache, setIsClearingCache] = useState(false);
-  const [clearCacheMessage, setClearCacheMessage] = useState<string | null>(
-    null
-  );
-  const [danmakuCacheUsage, setDanmakuCacheUsage] = useState('计算中...');
-
   // 确保组件已挂载
   useEffect(() => {
     setMounted(true);
@@ -388,22 +373,6 @@ export const UserMenu: React.FC = () => {
       console.error('加载未读通知数量失败:', error);
     }
   };
-
-  const formatCacheSize = useCallback((size: number) => {
-    if (size < 1024) return `${size} B`;
-    if (size < 1024 * 1024) return `${(size / 1024).toFixed(2)} KB`;
-    return `${(size / 1024 / 1024).toFixed(2)} MB`;
-  }, []);
-
-  const loadDanmakuCacheUsage = useCallback(async () => {
-    try {
-      const stats = await getDanmakuCacheStats();
-      setDanmakuCacheUsage(formatCacheSize(stats.totalSize));
-    } catch (error) {
-      console.error('获取弹幕缓存占用失败:', error);
-      setDanmakuCacheUsage('获取失败');
-    }
-  }, [formatCacheSize]);
 
   // 首次加载时检查未读通知数量（使用全局标记避免多个实例重复请求）
   useEffect(() => {
@@ -437,13 +406,6 @@ export const UserMenu: React.FC = () => {
       globalWindow.__loadingNotifications = false;
     });
   }, []);
-
-  useEffect(() => {
-    if (!mounted || !isSettingsOpen || !isDanmakuSectionOpen) return;
-    void (async () => {
-      await loadDanmakuCacheUsage();
-    })();
-  }, [loadDanmakuCacheUsage, mounted, isSettingsOpen, isDanmakuSectionOpen]);
 
   // 监听通知更新事件
   useEffect(() => {
@@ -744,36 +706,6 @@ export const UserMenu: React.FC = () => {
       );
       if (savedNextEpisodePreCache !== null) {
         setNextEpisodePreCache(savedNextEpisodePreCache === 'true');
-      }
-
-      const savedNextEpisodeDanmakuPreload = localStorage.getItem(
-        'nextEpisodeDanmakuPreload'
-      );
-      if (savedNextEpisodeDanmakuPreload !== null) {
-        setNextEpisodeDanmakuPreload(savedNextEpisodeDanmakuPreload === 'true');
-      }
-
-      const savedDisableAutoLoadDanmaku = localStorage.getItem(
-        'disableAutoLoadDanmaku'
-      );
-      if (savedDisableAutoLoadDanmaku !== null) {
-        setDisableAutoLoadDanmaku(savedDisableAutoLoadDanmaku === 'true');
-      } else {
-        const runtimeDefault =
-          (window as any).RUNTIME_CONFIG?.DANMAKU_AUTO_LOAD_DEFAULT !== false;
-        setDisableAutoLoadDanmaku(!runtimeDefault);
-      }
-
-      const savedDanmakuMaxCount = localStorage.getItem('danmakuMaxCount');
-      if (savedDanmakuMaxCount !== null) {
-        setDanmakuMaxCount(parseInt(savedDanmakuMaxCount, 10));
-      }
-
-      const savedDanmakuHeatmapDisabled = localStorage.getItem(
-        'danmaku_heatmap_disabled'
-      );
-      if (savedDanmakuHeatmapDisabled !== null) {
-        setDanmakuHeatmapDisabled(savedDanmakuHeatmapDisabled === 'true');
       }
 
       const savedHomeBannerEnabled = localStorage.getItem('homeBannerEnabled');
@@ -1929,34 +1861,6 @@ export const UserMenu: React.FC = () => {
     }
   };
 
-  const handleNextEpisodeDanmakuPreloadToggle = (value: boolean) => {
-    setNextEpisodeDanmakuPreload(value);
-    if (typeof window !== 'undefined') {
-      localStorage.setItem('nextEpisodeDanmakuPreload', String(value));
-    }
-  };
-
-  const handleDisableAutoLoadDanmakuToggle = (value: boolean) => {
-    setDisableAutoLoadDanmaku(value);
-    if (typeof window !== 'undefined') {
-      localStorage.setItem('disableAutoLoadDanmaku', String(value));
-    }
-  };
-
-  const handleDanmakuMaxCountChange = (value: number) => {
-    setDanmakuMaxCount(value);
-    if (typeof window !== 'undefined') {
-      localStorage.setItem('danmakuMaxCount', String(value));
-    }
-  };
-
-  const handleDanmakuHeatmapDisabledToggle = (value: boolean) => {
-    setDanmakuHeatmapDisabled(value);
-    if (typeof window !== 'undefined') {
-      localStorage.setItem('danmaku_heatmap_disabled', String(value));
-    }
-  };
-
   const handleSearchTraditionalToSimplifiedToggle = (value: boolean) => {
     setSearchTraditionalToSimplified(value);
     if (typeof window !== 'undefined') {
@@ -2100,12 +2004,6 @@ export const UserMenu: React.FC = () => {
     setTmdbImageBaseUrl('https://image.tmdb.org');
     setBufferStrategy('medium');
     setNextEpisodePreCache(true);
-    setNextEpisodeDanmakuPreload(true);
-    const defaultDanmakuAutoLoad =
-      (typeof window !== 'undefined' &&
-        (window as any).RUNTIME_CONFIG?.DANMAKU_AUTO_LOAD_DEFAULT !== false) ||
-      false;
-    setDisableAutoLoadDanmaku(!defaultDanmakuAutoLoad);
     setHomeBannerEnabled(true);
     setHomeBannerHeightScale('1');
     setHomeContinueWatchingEnabled(true);
@@ -2135,47 +2033,12 @@ export const UserMenu: React.FC = () => {
       localStorage.setItem('tmdbImageBaseUrl', 'https://image.tmdb.org');
       localStorage.setItem('bufferStrategy', 'medium');
       localStorage.setItem('nextEpisodePreCache', 'true');
-      localStorage.setItem('nextEpisodeDanmakuPreload', 'true');
-      localStorage.setItem(
-        'disableAutoLoadDanmaku',
-        String(!defaultDanmakuAutoLoad)
-      );
-      localStorage.setItem('danmakuMaxCount', '0');
-      localStorage.setItem('danmaku_heatmap_disabled', 'false');
       localStorage.setItem('homeBannerEnabled', 'true');
       localStorage.setItem('homeBannerHeightScale', '1');
       localStorage.setItem('homeContinueWatchingEnabled', 'true');
       localStorage.setItem('homeModules', JSON.stringify(defaultHomeModules));
       localStorage.setItem('searchTraditionalToSimplified', 'false');
       window.dispatchEvent(new CustomEvent('homeModulesUpdated'));
-    }
-  };
-
-  // 清除弹幕缓存
-  const handleClearDanmakuCache = async () => {
-    setIsClearingCache(true);
-    setClearCacheMessage(null);
-
-    try {
-      await clearAllDanmakuCache();
-      setClearCacheMessage('弹幕缓存已清除成功！');
-      setDanmakuCacheUsage('0 B');
-      console.log('弹幕缓存已清除');
-
-      // 3秒后自动清除提示
-      setTimeout(() => {
-        setClearCacheMessage(null);
-      }, 3000);
-    } catch (error) {
-      console.error('清除弹幕缓存失败:', error);
-      setClearCacheMessage('清除失败，请重试');
-
-      // 3秒后自动清除提示
-      setTimeout(() => {
-        setClearCacheMessage(null);
-      }, 3000);
-    } finally {
-      setIsClearingCache(false);
     }
   };
 
@@ -3926,252 +3789,6 @@ export const UserMenu: React.FC = () => {
                         <div className='absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full transition-transform peer-checked:translate-x-5'></div>
                       </div>
                     </label>
-                  </div>
-                </div>
-              )}
-            </div>
-
-            {/* 弹幕设置 */}
-            <div className='border border-gray-200 dark:border-gray-700 rounded-lg overflow-visible'>
-              <button
-                onClick={() => setIsDanmakuSectionOpen(!isDanmakuSectionOpen)}
-                className='w-full px-3 py-2.5 md:px-4 md:py-3 bg-gray-50 dark:bg-gray-800 hover:bg-gray-100 dark:hover:bg-gray-750 transition-colors flex items-center justify-between'
-              >
-                <div className='flex items-center gap-2'>
-                  <MessageSquare className='w-5 h-5 text-gray-600 dark:text-gray-400' />
-                  <h3 className='text-base font-semibold text-gray-800 dark:text-gray-200'>
-                    弹幕设置
-                  </h3>
-                </div>
-                {isDanmakuSectionOpen ? (
-                  <ChevronUp className='w-5 h-5 text-gray-600 dark:text-gray-400' />
-                ) : (
-                  <ChevronDown className='w-5 h-5 text-gray-600 dark:text-gray-400' />
-                )}
-              </button>
-              {isDanmakuSectionOpen && (
-                <div className='p-3 md:p-4 space-y-4 md:space-y-6'>
-                  {/* 禁用自动装填弹幕 */}
-                  <div className='flex items-center justify-between'>
-                    <div>
-                      <h4 className='text-sm font-medium text-gray-700 dark:text-gray-300'>
-                        禁用自动装填弹幕
-                      </h4>
-                      <p className='text-xs text-gray-500 dark:text-gray-400 mt-1'>
-                        开启后，播放页面不会自动匹配弹幕，只能手动匹配
-                      </p>
-                    </div>
-                    <label className='flex items-center cursor-pointer'>
-                      <div className='relative'>
-                        <input
-                          type='checkbox'
-                          className='sr-only peer'
-                          checked={disableAutoLoadDanmaku}
-                          onChange={(e) =>
-                            handleDisableAutoLoadDanmakuToggle(e.target.checked)
-                          }
-                        />
-                        <div className='w-11 h-6 bg-gray-300 rounded-full peer-checked:bg-green-500 transition-colors dark:bg-gray-600'></div>
-                        <div className='absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full transition-transform peer-checked:translate-x-5'></div>
-                      </div>
-                    </label>
-                  </div>
-
-                  {/* 下集弹幕预加载 */}
-                  <div className='flex items-center justify-between'>
-                    <div>
-                      <h4 className='text-sm font-medium text-gray-700 dark:text-gray-300'>
-                        下集弹幕预加载
-                      </h4>
-                      <p className='text-xs text-gray-500 dark:text-gray-400 mt-1'>
-                        播放进度达到90%时，自动预加载下一集弹幕
-                      </p>
-                    </div>
-                    <label className='flex items-center cursor-pointer'>
-                      <div className='relative'>
-                        <input
-                          type='checkbox'
-                          className='sr-only peer'
-                          checked={nextEpisodeDanmakuPreload}
-                          onChange={(e) =>
-                            handleNextEpisodeDanmakuPreloadToggle(
-                              e.target.checked
-                            )
-                          }
-                        />
-                        <div className='w-11 h-6 bg-gray-300 rounded-full peer-checked:bg-green-500 transition-colors dark:bg-gray-600'></div>
-                        <div className='absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full transition-transform peer-checked:translate-x-5'></div>
-                      </div>
-                    </label>
-                  </div>
-
-                  {/* 禁用弹幕热力图 */}
-                  <div className='flex items-center justify-between'>
-                    <div>
-                      <h4 className='text-sm font-medium text-gray-700 dark:text-gray-300'>
-                        禁用弹幕热力图
-                      </h4>
-                      <p className='text-xs text-gray-500 dark:text-gray-400 mt-1'>
-                        开启后不显示弹幕热力图和热力图开关
-                      </p>
-                    </div>
-                    <label className='flex items-center cursor-pointer'>
-                      <div className='relative'>
-                        <input
-                          type='checkbox'
-                          className='sr-only peer'
-                          checked={danmakuHeatmapDisabled}
-                          onChange={(e) =>
-                            handleDanmakuHeatmapDisabledToggle(e.target.checked)
-                          }
-                        />
-                        <div className='w-11 h-6 bg-gray-300 rounded-full peer-checked:bg-green-500 transition-colors dark:bg-gray-600'></div>
-                        <div className='absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full transition-transform peer-checked:translate-x-5'></div>
-                      </div>
-                    </label>
-                  </div>
-
-                  {/* 弹幕加载上限 */}
-                  <div className='space-y-2'>
-                    <div className='flex items-center justify-between'>
-                      <span className='text-xs text-gray-600 dark:text-gray-400'>
-                        弹幕加载上限
-                      </span>
-                      <span className='text-xs font-medium text-gray-700 dark:text-gray-300'>
-                        {danmakuMaxCount === 0
-                          ? '无上限'
-                          : `${danmakuMaxCount} 条`}
-                      </span>
-                    </div>
-                    <div className='flex items-center gap-2'>
-                      <input
-                        type='range'
-                        min='0'
-                        max='10000'
-                        step='100'
-                        value={danmakuMaxCount}
-                        onChange={(e) =>
-                          handleDanmakuMaxCountChange(parseInt(e.target.value))
-                        }
-                        className='flex-1 h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer dark:bg-gray-700'
-                        style={{
-                          background: `linear-gradient(to right, #10b981 0%, #10b981 ${
-                            (danmakuMaxCount / 10000) * 100
-                          }%, #e5e7eb ${
-                            (danmakuMaxCount / 10000) * 100
-                          }%, #e5e7eb 100%)`,
-                        }}
-                      />
-                    </div>
-                    <div
-                      className='relative text-xs text-gray-500 dark:text-gray-400'
-                      style={{ height: '24px' }}
-                    >
-                      <button
-                        onClick={() => handleDanmakuMaxCountChange(0)}
-                        className={`absolute px-2 py-0.5 rounded ${
-                          danmakuMaxCount === 0
-                            ? 'bg-green-500 text-white'
-                            : 'hover:bg-gray-200 dark:hover:bg-gray-700'
-                        }`}
-                        style={{ left: '0%', transform: 'translateX(0%)' }}
-                      >
-                        无上限
-                      </button>
-                      <button
-                        onClick={() => handleDanmakuMaxCountChange(3000)}
-                        className={`absolute px-2 py-0.5 rounded ${
-                          danmakuMaxCount === 3000
-                            ? 'bg-green-500 text-white'
-                            : 'hover:bg-gray-200 dark:hover:bg-gray-700'
-                        }`}
-                        style={{ left: '30%', transform: 'translateX(-50%)' }}
-                      >
-                        3000
-                      </button>
-                      <button
-                        onClick={() => handleDanmakuMaxCountChange(5000)}
-                        className={`absolute px-2 py-0.5 rounded ${
-                          danmakuMaxCount === 5000
-                            ? 'bg-green-500 text-white'
-                            : 'hover:bg-gray-200 dark:hover:bg-gray-700'
-                        }`}
-                        style={{ left: '50%', transform: 'translateX(-50%)' }}
-                      >
-                        5000
-                      </button>
-                      <button
-                        onClick={() => handleDanmakuMaxCountChange(10000)}
-                        className={`absolute px-2 py-0.5 rounded ${
-                          danmakuMaxCount === 10000
-                            ? 'bg-green-500 text-white'
-                            : 'hover:bg-gray-200 dark:hover:bg-gray-700'
-                        }`}
-                        style={{ left: '100%', transform: 'translateX(-100%)' }}
-                      >
-                        10000
-                      </button>
-                    </div>
-                    <p className='text-xs text-gray-500 dark:text-gray-400 mt-1'>
-                      限制加载的弹幕数量，减少性能消耗
-                    </p>
-                  </div>
-
-                  {/* 清除弹幕缓存 */}
-                  <div className='space-y-3'>
-                    <div>
-                      <h4 className='text-sm font-medium text-gray-700 dark:text-gray-300'>
-                        弹幕缓存管理
-                      </h4>
-                      <p className='text-xs text-gray-500 dark:text-gray-400 mt-1'>
-                        弹幕缓存空间占用：{danmakuCacheUsage}
-                      </p>
-                      <p className='text-xs text-gray-500 dark:text-gray-400 mt-1'>
-                        清除所有已缓存的弹幕数据
-                      </p>
-                    </div>
-                    <button
-                      onClick={handleClearDanmakuCache}
-                      disabled={isClearingCache}
-                      className='w-full px-4 py-2.5 bg-red-500 hover:bg-red-600 disabled:bg-red-400 dark:bg-red-600 dark:hover:bg-red-700 dark:disabled:bg-red-500 text-white text-sm font-medium rounded-lg transition-colors duration-200 shadow-sm hover:shadow-md disabled:cursor-not-allowed flex items-center justify-center gap-2'
-                    >
-                      {isClearingCache ? (
-                        <>
-                          <div className='w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin'></div>
-                          <span>清除中...</span>
-                        </>
-                      ) : (
-                        <>
-                          <svg
-                            className='w-4 h-4'
-                            fill='none'
-                            stroke='currentColor'
-                            viewBox='0 0 24 24'
-                          >
-                            <path
-                              strokeLinecap='round'
-                              strokeLinejoin='round'
-                              strokeWidth={2}
-                              d='M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16'
-                            />
-                          </svg>
-                          <span>清除弹幕缓存</span>
-                        </>
-                      )}
-                    </button>
-
-                    {/* 成功/失败提示 */}
-                    {clearCacheMessage && (
-                      <div
-                        className={`text-sm p-3 rounded-lg border ${
-                          clearCacheMessage.includes('成功')
-                            ? 'bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800 text-green-700 dark:text-green-300'
-                            : 'bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800 text-red-700 dark:text-red-300'
-                        }`}
-                      >
-                        {clearCacheMessage}
-                      </div>
-                    )}
                   </div>
                 </div>
               )}

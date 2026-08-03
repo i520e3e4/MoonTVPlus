@@ -10,7 +10,6 @@ import React, {
   useState,
 } from 'react';
 
-import type { DanmakuComment, DanmakuSelection } from '@/lib/danmaku/types';
 import {
   generateStorageKey,
   getCachedPlayRecordsSnapshot,
@@ -18,17 +17,16 @@ import {
 import { isEpisodeHiddenByFilter } from '@/lib/episode-filter';
 import { loadAllLocalEpisodeProgressRecords } from '@/lib/episode-progress';
 import { isNetdiskSource } from '@/lib/netdisk/source';
+import { probePlaybackSource } from '@/lib/playback-source-probe';
 import {
   calculatePlaybackSourceScore,
   parseBitrateKbps,
   parseLoadSpeedKBps,
 } from '@/lib/playback-source-score';
-import { probePlaybackSource } from '@/lib/playback-source-probe';
 import { getSourceDisplayLabel } from '@/lib/source-display';
 import { EpisodeFilterConfig, SearchResult } from '@/lib/types';
 import { getVideoResolutionFromM3u8 } from '@/lib/utils';
 
-import DanmakuPanel from '@/components/DanmakuPanel';
 import EpisodeFilterSettings from '@/components/EpisodeFilterSettings';
 import ProxyImage from '@/components/ProxyImage';
 
@@ -72,11 +70,7 @@ interface EpisodeSelectorProps {
   backgroundSourcesLoading?: boolean;
   /** 预计算的测速结果，避免重复测速 */
   precomputedVideoInfo?: Map<string, VideoInfo>;
-  /** 弹幕相关 */
-  onDanmakuSelect?: (selection: DanmakuSelection) => void;
-  currentDanmakuSelection?: DanmakuSelection | null;
-  onUploadDanmaku?: (comments: DanmakuComment[]) => void;
-  /** 观影室房员状态 - 禁用选集和换源，但保留弹幕 */
+  /** 观影室房员状态 - 禁用选集和换源 */
   isRoomMember?: boolean;
   /** 外层使用 TMDB 背景图时，提升深色文字对比度 */
   useLightTextOnBackdrop?: boolean;
@@ -105,9 +99,6 @@ const EpisodeSelector: React.FC<EpisodeSelectorProps> = ({
   sourceSearchError = null,
   backgroundSourcesLoading = false,
   precomputedVideoInfo,
-  onDanmakuSelect,
-  currentDanmakuSelection,
-  onUploadDanmaku,
   isRoomMember = false,
   useLightTextOnBackdrop = false,
   episodeFilterConfig = null,
@@ -301,18 +292,9 @@ const EpisodeSelector: React.FC<EpisodeSelectorProps> = ({
     value,
   ]);
 
-  // 主要的 tab 状态：'danmaku' | 'episodes' | 'sources'
-  // 默认显示选集选项卡，但如果是房员则显示弹幕
-  const [activeTab, setActiveTab] = useState<
-    'danmaku' | 'episodes' | 'sources'
-  >(isRoomMember ? 'danmaku' : 'episodes');
-
-  // 当房员状态变化时，自动切换到弹幕选项卡
-  useEffect(() => {
-    if (isRoomMember && (activeTab === 'episodes' || activeTab === 'sources')) {
-      setActiveTab('danmaku');
-    }
-  }, [isRoomMember, activeTab]);
+  const [activeTab, setActiveTab] = useState<'episodes' | 'sources'>(
+    'episodes'
+  );
 
   // 当前分组索引（0 开始）
   const initialPage = Math.max(
@@ -883,33 +865,7 @@ const EpisodeSelector: React.FC<EpisodeSelectorProps> = ({
           {isRoomMember && <span className='ml-1 text-xs'>🔒</span>}
         </div>
 
-        {/* 弹幕选项卡 */}
-        <div
-          onClick={() => setActiveTab('danmaku')}
-          className={`flex-1 py-3 px-6 text-center cursor-pointer transition-all duration-200 font-medium
-            ${
-              activeTab === 'danmaku'
-                ? 'text-green-600 dark:text-green-400'
-                : inactiveTabClass
-            }
-          `.trim()}
-        >
-          弹幕
-        </div>
       </div>
-
-      {/* 弹幕 Tab 内容 */}
-      {activeTab === 'danmaku' && onDanmakuSelect && (
-        <div className='flex-1 min-h-0 overflow-hidden'>
-          <DanmakuPanel
-            videoTitle={videoTitle || ''}
-            currentEpisodeIndex={value - 1}
-            onDanmakuSelect={onDanmakuSelect}
-            currentSelection={currentDanmakuSelection || null}
-            onUploadDanmaku={onUploadDanmaku}
-          />
-        </div>
-      )}
 
       {/* 选集 Tab 内容 */}
       {activeTab === 'episodes' && (

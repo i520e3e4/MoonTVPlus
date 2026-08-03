@@ -49,7 +49,6 @@ import {
   Settings,
   Smartphone,
   Tablet,
-  Trash2,
   Tv,
   UserPlus,
   Users,
@@ -72,14 +71,14 @@ import { createPortal } from 'react-dom';
 import { AdminConfig, AdminConfigResult } from '@/lib/admin.types';
 import { getAuthInfoFromBrowserCookie } from '@/lib/auth';
 import { BookSource } from '@/lib/book.types';
-import { AdFilterRule, DEFAULT_AD_FILTER_RULE } from '@/lib/m3u8-ad-filter';
 import {
   ALL_FEATURE_PERMISSION_KEYS,
   FEATURE_PERMISSION_OPTIONS,
 } from '@/lib/feature-permissions';
+import { AdFilterRule, DEFAULT_AD_FILTER_RULE } from '@/lib/m3u8-ad-filter';
 
-import AnimeSubscriptionComponent from '@/components/AnimeSubscriptionComponent';
 import OperationsOverview from '@/components/admin/OperationsOverview';
+import AnimeSubscriptionComponent from '@/components/AnimeSubscriptionComponent';
 import CorrectDialog from '@/components/CorrectDialog';
 import DataMigration from '@/components/DataMigration';
 import PageLayout from '@/components/PageLayout';
@@ -369,10 +368,6 @@ interface SiteConfig {
   DoubanImageProxy: string;
   DisableYellowFilter: boolean;
   FluidSearch: boolean;
-  DanmakuSourceType?: 'builtin' | 'custom';
-  DanmakuApiBase: string;
-  DanmakuApiToken: string;
-  DanmakuAutoLoadDefault?: boolean;
   TMDBApiKey?: string;
   TMDBProxy?: string;
   TMDBReverseProxy?: string;
@@ -10540,10 +10535,6 @@ const SiteConfigComponent = ({
     DoubanImageProxy: '',
     DisableYellowFilter: false,
     FluidSearch: true,
-    DanmakuSourceType: 'builtin',
-    DanmakuApiBase: 'https://mtvpls-danmu.netlify.app/87654321',
-    DanmakuApiToken: '87654321',
-    DanmakuAutoLoadDefault: true,
     TMDBApiKey: '',
     TMDBProxy: '',
     TMDBReverseProxy: '',
@@ -10662,12 +10653,6 @@ const SiteConfigComponent = ({
         DoubanImageProxy: config.SiteConfig.DoubanImageProxy || '',
         DisableYellowFilter: config.SiteConfig.DisableYellowFilter || false,
         FluidSearch: config.SiteConfig.FluidSearch || true,
-        DanmakuSourceType: config.SiteConfig.DanmakuSourceType || 'custom',
-        DanmakuApiBase:
-          config.SiteConfig.DanmakuApiBase || 'http://localhost:9321',
-        DanmakuApiToken: config.SiteConfig.DanmakuApiToken || '87654321',
-        DanmakuAutoLoadDefault:
-          config.SiteConfig.DanmakuAutoLoadDefault !== false,
         TMDBApiKey: config.SiteConfig.TMDBApiKey || '',
         TMDBProxy: config.SiteConfig.TMDBProxy || '',
         TMDBReverseProxy: config.SiteConfig.TMDBReverseProxy || '',
@@ -11275,140 +11260,6 @@ const SiteConfigComponent = ({
             <p className='mt-1 text-xs text-gray-500 dark:text-gray-400'>
               选择详情页"更多推荐"的数据来源。混合模式会根据豆瓣ID和评论开关自动切换数据源
             </p>
-          </div>
-        </div>
-      </details>
-
-      {/* 弹幕 API 配置 */}
-      <details className='pt-4 border-t border-gray-200 dark:border-gray-700'>
-        <summary className='text-sm font-semibold text-gray-900 dark:text-gray-100 cursor-pointer'>
-          弹幕配置
-        </summary>
-        <div className='mt-4 space-y-4'>
-          <div className='inline-flex rounded-lg bg-gray-100 p-1 dark:bg-gray-800'>
-            <button
-              type='button'
-              onClick={() =>
-                setSiteSettings((prev) => ({
-                  ...prev,
-                  DanmakuSourceType: 'builtin',
-                }))
-              }
-              className={`rounded-md px-3 py-1.5 text-sm transition-colors ${
-                siteSettings.DanmakuSourceType !== 'custom'
-                  ? 'bg-white text-green-600 shadow-sm dark:bg-gray-700 dark:text-green-400'
-                  : 'text-gray-600 hover:text-gray-900 dark:text-gray-300 dark:hover:text-white'
-              }`}
-            >
-              内置源
-            </button>
-            <button
-              type='button'
-              onClick={() =>
-                setSiteSettings((prev) => ({
-                  ...prev,
-                  DanmakuSourceType: 'custom',
-                }))
-              }
-              className={`rounded-md px-3 py-1.5 text-sm transition-colors ${
-                siteSettings.DanmakuSourceType === 'custom'
-                  ? 'bg-white text-green-600 shadow-sm dark:bg-gray-700 dark:text-green-400'
-                  : 'text-gray-600 hover:text-gray-900 dark:text-gray-300 dark:hover:text-white'
-              }`}
-            >
-              自定义源
-            </button>
-          </div>
-
-          {siteSettings.DanmakuSourceType !== 'custom' && (
-            <p className='text-xs text-amber-600 dark:text-amber-400'>
-              ⚠️
-              内置弹幕源为多人共享服务，稳定性可能受使用高峰影响，建议自行部署后使用自定义源。
-            </p>
-          )}
-
-          {siteSettings.DanmakuSourceType === 'custom' && (
-            <>
-              {/* 弹幕 API 地址 */}
-              <div>
-                <label className='block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2'>
-                  弹幕 API 地址
-                </label>
-                <input
-                  type='text'
-                  placeholder='http://localhost:9321'
-                  value={siteSettings.DanmakuApiBase}
-                  onChange={(e) =>
-                    setSiteSettings((prev) => ({
-                      ...prev,
-                      DanmakuApiBase: e.target.value,
-                    }))
-                  }
-                  className='w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-green-500 focus:border-transparent'
-                />
-                <p className='mt-1 text-xs text-gray-500 dark:text-gray-400'>
-                  自定义弹幕服务器的 API 地址。API部署参考
-                  <a
-                    href='https://github.com/huangxd-/danmu_api.git'
-                    target='_blank'
-                    rel='noopener noreferrer'
-                    className='ml-1 text-blue-500 hover:text-blue-600 dark:text-blue-400 dark:hover:text-blue-300'
-                  >
-                    danmu_api
-                  </a>
-                </p>
-              </div>
-
-              {/* 弹幕 API Token */}
-              <div>
-                <label className='block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2'>
-                  弹幕 API Token
-                </label>
-                <input
-                  type='text'
-                  placeholder='87654321'
-                  value={siteSettings.DanmakuApiToken}
-                  onChange={(e) =>
-                    setSiteSettings((prev) => ({
-                      ...prev,
-                      DanmakuApiToken: e.target.value,
-                    }))
-                  }
-                  className='w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-green-500 focus:border-transparent'
-                />
-                <p className='mt-1 text-xs text-gray-500 dark:text-gray-400'>
-                  自定义弹幕服务器的访问令牌，默认为 87654321
-                </p>
-              </div>
-            </>
-          )}
-
-          <div className='flex items-center justify-between'>
-            <div>
-              <h4 className='text-sm font-medium text-gray-700 dark:text-gray-300'>
-                默认自动加载弹幕
-              </h4>
-              <p className='text-xs text-gray-500 dark:text-gray-400 mt-1'>
-                新用户或未设置本地偏好时，播放页是否默认自动匹配并加载弹幕。用户仍可在个人设置中自行覆盖。
-              </p>
-            </div>
-            <label className='flex items-center cursor-pointer'>
-              <div className='relative'>
-                <input
-                  type='checkbox'
-                  className='sr-only peer'
-                  checked={siteSettings.DanmakuAutoLoadDefault !== false}
-                  onChange={(e) =>
-                    setSiteSettings((prev) => ({
-                      ...prev,
-                      DanmakuAutoLoadDefault: e.target.checked,
-                    }))
-                  }
-                />
-                <div className='w-11 h-6 bg-gray-300 rounded-full peer-checked:bg-green-500 transition-colors dark:bg-gray-600'></div>
-                <div className='absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full transition-transform peer-checked:translate-x-5'></div>
-              </div>
-            </label>
           </div>
         </div>
       </details>

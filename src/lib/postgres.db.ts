@@ -8,26 +8,25 @@
  * 注意：此模块仅在服务端使用，通过 webpack 配置排除客户端打包
  */
 
-import {
-  IStorage,
-  PlayRecord,
-  Favorite,
-  SkipConfig,
-  DanmakuFilterConfig,
-  Notification,
-  MovieRequest,
-  PushSubscriptionRecord,
-} from './types';
 import { AdminConfig } from './admin.types';
-import { MangaReadRecord, MangaShelfItem } from './manga.types';
 import { BookReadRecord, BookShelfItem } from './book.types';
 import { DatabaseAdapter } from './d1-adapter';
+import { MangaReadRecord, MangaShelfItem } from './manga.types';
 import {
   MusicV2HistoryRecord,
   MusicV2PlaylistItem,
   MusicV2PlaylistRecord,
 } from './music-v2';
 import { dispatchNotificationChannels } from './notification-dispatch';
+import {
+  Favorite,
+  IStorage,
+  MovieRequest,
+  Notification,
+  PlayRecord,
+  PushSubscriptionRecord,
+  SkipConfig,
+} from './types';
 
 /**
  * Vercel Postgres 存储实现
@@ -2958,58 +2957,6 @@ export class PostgresStorage implements IStorage {
         .run();
     } catch (err) {
       console.error('PostgresStorage.migrateSkipConfigs error:', err);
-    }
-  }
-
-  // ==================== 弹幕过滤配置 ====================
-
-  async getDanmakuFilterConfig(
-    userName: string
-  ): Promise<DanmakuFilterConfig | null> {
-    try {
-      const result = await this.db
-        .prepare('SELECT rules FROM danmaku_filter_configs WHERE username = $1')
-        .bind(userName)
-        .first();
-
-      if (!result) return null;
-      return JSON.parse(result.rules as string);
-    } catch (err) {
-      console.error('PostgresStorage.getDanmakuFilterConfig error:', err);
-      return null;
-    }
-  }
-
-  async setDanmakuFilterConfig(
-    userName: string,
-    config: DanmakuFilterConfig
-  ): Promise<void> {
-    try {
-      await this.db
-        .prepare(
-          `
-          INSERT INTO danmaku_filter_configs (username, rules)
-          VALUES ($1, $2)
-          ON CONFLICT (username) DO UPDATE SET rules = EXCLUDED.rules
-        `
-        )
-        .bind(userName, JSON.stringify(config))
-        .run();
-    } catch (err) {
-      console.error('PostgresStorage.setDanmakuFilterConfig error:', err);
-      throw err;
-    }
-  }
-
-  async deleteDanmakuFilterConfig(userName: string): Promise<void> {
-    try {
-      await this.db
-        .prepare('DELETE FROM danmaku_filter_configs WHERE username = $1')
-        .bind(userName)
-        .run();
-    } catch (err) {
-      console.error('PostgresStorage.deleteDanmakuFilterConfig error:', err);
-      throw err;
     }
   }
 

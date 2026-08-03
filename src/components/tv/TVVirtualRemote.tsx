@@ -470,23 +470,6 @@ export default function TVVirtualRemote() {
 
         const active = document.activeElement;
         if (
-          active instanceof HTMLElement &&
-          active.closest('[data-tv-danmaku-settings]')
-        ) {
-          return;
-        }
-
-        if (
-          active instanceof HTMLInputElement &&
-          active.type === 'range' &&
-          active.closest('[data-tv-danmaku-settings]')
-        ) {
-          if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
-            return;
-          }
-        }
-
-        if (
           active instanceof HTMLInputElement &&
           active.type === 'range' &&
           active.closest('[data-tv-no-focus="true"]')
