@@ -1,5 +1,8 @@
 import {
+  calculateAbsolutePingScore,
+  calculateAbsoluteSpeedScore,
   calculatePlaybackSourceScore,
+  calculateSustainabilityScore,
   parseBitrateKbps,
   parseLoadSpeedKBps,
 } from '../playback-source-score';
@@ -15,6 +18,19 @@ describe('playback source scoring', () => {
     expect(parseBitrateKbps('850 Kbps')).toBe(850);
     expect(parseBitrateKbps('2.5 Mbps')).toBe(2500);
     expect(parseBitrateKbps('未知')).toBeNull();
+  });
+
+  it('does not treat the fastest source as fast when every source is slow', () => {
+    expect(calculateAbsoluteSpeedScore(64)).toBeLessThan(10);
+    expect(calculateAbsoluteSpeedScore(2048)).toBeGreaterThanOrEqual(85);
+    expect(calculateAbsolutePingScore(2000)).toBeLessThan(20);
+  });
+
+  it('requires enough throughput headroom for the advertised bitrate', () => {
+    expect(calculateSustainabilityScore(0.7)).toBeLessThan(10);
+    expect(calculateSustainabilityScore(1)).toBe(25);
+    expect(calculateSustainabilityScore(2)).toBe(80);
+    expect(calculateSustainabilityScore(3)).toBe(100);
   });
 
   it('prefers the faster source when movie quality is equal', () => {
@@ -56,7 +72,7 @@ describe('playback source scoring', () => {
       episodeCount: 20,
     });
 
-    expect(complete - outdated).toBe(10);
+    expect(complete - outdated).toBe(8);
   });
 
   it('uses historical reliability to avoid a fast but unstable source', () => {
@@ -90,5 +106,38 @@ describe('playback source scoring', () => {
     });
 
     expect(reliable).toBeGreaterThan(unstable);
+  });
+
+  it('prefers sustainable HD over unsustainable high-bitrate video', () => {
+    const common = {
+      maxSpeedKBps: 2048,
+      minPingMs: 80,
+      maxPingMs: 120,
+      maxBitrateKbps: 8000,
+      episodeCount: 1,
+      maxEpisodeCount: 1,
+      historicalHealthScore: 70,
+    };
+    const unsustainable4k = calculatePlaybackSourceScore({
+      ...common,
+      testResult: {
+        quality: '4K',
+        bitrate: '8 Mbps',
+        loadSpeed: '700 KB/s',
+        pingTime: 80,
+        sustainabilityRatio: 0.7,
+      },
+    });
+    const sustainable1080p = calculatePlaybackSourceScore({
+      ...common,
+      testResult: {
+        quality: '1080p',
+        bitrate: '4 Mbps',
+        loadSpeed: '2 MB/s',
+        pingTime: 120,
+        sustainabilityRatio: 4.1,
+      },
+    });
+    expect(sustainable1080p).toBeGreaterThan(unsustainable4k);
   });
 });

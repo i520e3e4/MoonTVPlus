@@ -1,6 +1,6 @@
 import { AdminConfig } from './admin.types';
-import { MangaReadRecord, MangaShelfItem } from './manga.types';
 import { BookReadRecord, BookShelfItem } from './book.types';
+import { MangaReadRecord, MangaShelfItem } from './manga.types';
 
 // 播放记录数据结构
 export interface PlayRecord {
@@ -288,6 +288,7 @@ export interface SearchResult {
   weight?: number; // 播放源权重（来自后台配置，用于排序和优选评分）
   sourceHealthScore?: number; // 服务端根据历史搜索/播放表现计算的健康度
   sourcePreferenceScore?: number; // 当前用户的历史播放偏好
+  sourceMatchScore?: number; // 与当前影视条目的标题/年份/ID匹配置信度
   class?: string;
   year: string;
   desc?: string;

@@ -5,6 +5,7 @@ import { NextRequest, NextResponse } from 'next/server';
 
 import { getAuthInfoFromCookie } from '@/lib/auth';
 import { getAvailableApiSites, getCacheTime, getConfig } from '@/lib/config';
+import { calculateContentMatchScore } from '@/lib/content-match';
 import { searchFromApi } from '@/lib/downstream';
 import { getProxyToken } from '@/lib/emby-token';
 import { hasFeaturePermission } from '@/lib/permissions';
@@ -38,14 +39,6 @@ function stableConfigHash(value: string): string {
     hash = Math.imul(hash, 16777619);
   }
   return (hash >>> 0).toString(36);
-}
-
-function normalizeSearchTitle(title: string): string {
-  return title
-    .toLowerCase()
-    .replace(/[\s\u3000]+/g, '')
-    .replace(/[·•・]/g, '')
-    .replace(/[《》〈〉「」『』【】\u005b\u005d()（）]/g, '');
 }
 
 export async function GET(request: NextRequest) {
@@ -104,7 +97,7 @@ export async function GET(request: NextRequest) {
       ])
     )
   );
-  const cacheKey = `search:v7:${encodeURIComponent(
+  const cacheKey = `search:v8:${encodeURIComponent(
     authInfo.username
   )}:${encodeURIComponent(query.trim().toLowerCase())}:${
     includeSpecialSources ? 1 : 0
@@ -290,7 +283,10 @@ export async function GET(request: NextRequest) {
     sources: rankedSources,
     search: async (source) => searchFromApi(source.site, query),
     isResultUseful: (result) =>
-      normalizeSearchTitle(result.title) === normalizeSearchTitle(query),
+      calculateContentMatchScore({
+        requestedTitle: query,
+        candidateTitle: result.title,
+      }) >= 90,
     getResultSourceKey: (result) => result.source,
     onObservation: (source, observation) => {
       searchObservations.push({
@@ -401,6 +397,10 @@ export async function GET(request: NextRequest) {
         weight: result.weight ?? weightMap.get(result.source) ?? 0,
         sourceHealthScore: health ? calculateHealthScore(health) : 55,
         sourcePreferenceScore: preference?.preferenceScore ?? 0,
+        sourceMatchScore: calculateContentMatchScore({
+          requestedTitle: query,
+          candidateTitle: result.title,
+        }),
       };
     });
 
@@ -415,10 +415,12 @@ export async function GET(request: NextRequest) {
     // playback page will add live resolution/throughput probes on top.
     flattenedResults.sort((a, b) => {
       const priorA =
+        (a.sourceMatchScore ?? 0) * 0.35 +
         (a.weight ?? 0) +
         ((a.sourceHealthScore ?? 55) - 55) * 0.25 +
         (a.sourcePreferenceScore ?? 0);
       const priorB =
+        (b.sourceMatchScore ?? 0) * 0.35 +
         (b.weight ?? 0) +
         ((b.sourceHealthScore ?? 55) - 55) * 0.25 +
         (b.sourcePreferenceScore ?? 0);

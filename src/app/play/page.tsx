@@ -16,6 +16,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { Suspense, useEffect, useMemo, useRef, useState } from 'react';
 
 import { getAuthInfoFromBrowserCookie } from '@/lib/auth';
+import { calculateContentMatchScore } from '@/lib/content-match';
 import {
   clearDanmakuCacheByTitle,
   convertDanmakuFormat,
@@ -66,24 +67,29 @@ import {
   normalizeEpisodeFilterConfig,
 } from '@/lib/episode-filter';
 import {
-  appendSpecialSourceParam,
-  isSpecialSourcesEnabledOnDevice,
-} from '@/lib/special-source.client';
-import {
   buildEpisodeProgressContentKey,
   loadLocalEpisodeProgress,
   pruneLocalEpisodeProgressStorage,
   saveLocalEpisodeProgress,
 } from '@/lib/episode-progress';
-import { isNetdiskSource, normalizeNetdiskSource } from '@/lib/netdisk/source';
+import { getIndexedDBVideoPlaybackUrl } from '@/lib/indexeddb-video-cache';
 import { filterM3u8Ads } from '@/lib/m3u8-ad-filter';
-import { usePlaybackTelemetry } from '@/hooks/usePlaybackTelemetry';
+import { isNetdiskSource, normalizeNetdiskSource } from '@/lib/netdisk/source';
+import {
+  calculatePlaybackSourceScore,
+  parseBitrateKbps,
+  parseLoadSpeedKBps,
+} from '@/lib/playback-source-score';
 import {
   getRecommendationCache,
   recommendationCacheKeys,
   setRecommendationCache,
 } from '@/lib/recommendations/cache';
-import { getIndexedDBVideoPlaybackUrl } from '@/lib/indexeddb-video-cache';
+import { probeCandidatesProgressively } from '@/lib/source-probe-plan';
+import {
+  appendSpecialSourceParam,
+  isSpecialSourcesEnabledOnDevice,
+} from '@/lib/special-source.client';
 import {
   convertSubtitleFileToVttObjectUrl,
   CUSTOM_SUBTITLE_ACCEPT,
@@ -99,14 +105,9 @@ import {
   getVideoResolutionFromM3u8,
   processImageUrl,
 } from '@/lib/utils';
-import {
-  calculatePlaybackSourceScore,
-  parseBitrateKbps,
-  parseLoadSpeedKBps,
-} from '@/lib/playback-source-score';
-import { probeCandidatesProgressively } from '@/lib/source-probe-plan';
 import { useEnableAIComments } from '@/hooks/useEnableAIComments';
 import { useEnableComments } from '@/hooks/useEnableComments';
+import { usePlaybackTelemetry } from '@/hooks/usePlaybackTelemetry';
 import { usePlaySync } from '@/hooks/usePlaySync';
 
 import AIChatPanel from '@/components/AIChatPanel';
@@ -2040,6 +2041,7 @@ function PlayPageClient() {
     loadSpeed: string;
     pingTime: number;
     bitrate: string;
+    sustainabilityRatio?: number;
   } | null>(null);
 
   // 折叠状态（仅在 lg 及以上屏幕有效）
@@ -2744,16 +2746,21 @@ function PlayPageClient() {
         loadSpeed: string;
         pingTime: number;
         bitrate: string;
+        throughputKbps: number;
+        sustainabilityRatio: number;
+        manifestMs: number;
       };
     };
     type MaybeSourceTestResult = SourceTestResult | null;
 
     const sortedByWeight = [...sources].sort((a, b) => {
       const priorA =
+        (a.sourceMatchScore ?? 100) * 0.2 +
         (a.weight ?? 0) +
         ((a.sourceHealthScore ?? 55) - 55) * 0.25 +
         (a.sourcePreferenceScore ?? 0);
       const priorB =
+        (b.sourceMatchScore ?? 100) * 0.2 +
         (b.weight ?? 0) +
         ((b.sourceHealthScore ?? 55) - 55) * 0.25 +
         (b.sourcePreferenceScore ?? 0);
@@ -2823,7 +2830,8 @@ function PlayPageClient() {
           maxEpisodeCount,
           maxBitrate,
           result.source.sourceHealthScore ?? 55,
-          result.source.sourcePreferenceScore ?? 0
+          result.source.sourcePreferenceScore ?? 0,
+          result.source.sourceMatchScore ?? 100
         ),
       }));
 
@@ -2936,7 +2944,8 @@ function PlayPageClient() {
     maxEpisodeCount = 1,
     maxBitrate = 0,
     historicalHealthScore = 55,
-    preferenceScore = 0
+    preferenceScore = 0,
+    contentMatchScore = 100
   ): number => {
     return calculatePlaybackSourceScore({
       testResult,
@@ -2948,6 +2957,7 @@ function PlayPageClient() {
       maxEpisodeCount,
       historicalHealthScore,
       preferenceScore,
+      contentMatchScore,
       configuredWeight: weight,
     });
   };
@@ -3232,7 +3242,7 @@ function PlayPageClient() {
   const refreshXiaoyaUrl = async (
     preferredHls?: any,
     preferredVideo?: HTMLVideoElement,
-    isScheduled: boolean = false
+    isScheduled = false
   ) => {
     // 防抖：距离上次刷新不足3秒则不刷新
     const now = Date.now();
@@ -5124,20 +5134,31 @@ function PlayPageClient() {
     const filterSourcesForCurrentVideo = (
       items: SearchResult[]
     ): SearchResult[] => {
-      return items.filter(
-        (result: SearchResult) =>
-          normalizeTitle(result.title).toLowerCase() ===
-            normalizeTitle(videoTitleRef.current).toLowerCase() &&
-          (videoYearRef.current
-            ? result.year.toLowerCase() ===
-                videoYearRef.current.toLowerCase() ||
-              !result.year ||
-              result.year.trim() === '' ||
-              result.year === 'unknown' ||
-              !/^\d{4}$/.test(result.year)
-            : true) &&
-          (searchType ? getType(result) === searchType : true)
-      );
+      return items
+        .map((result) => ({
+          ...result,
+          sourceMatchScore: calculateContentMatchScore({
+            requestedTitle: videoTitleRef.current,
+            candidateTitle: result.title,
+            requestedYear: videoYearRef.current,
+            candidateYear: result.year,
+            requestedDoubanId:
+              detailRef.current?.douban_id || videoDoubanId || undefined,
+            candidateDoubanId: result.douban_id || undefined,
+          }),
+        }))
+        .filter(
+          (result) =>
+            (result.sourceMatchScore ?? 0) >= 78 &&
+            result.episodes.length > currentEpisodeIndexRef.current &&
+            (searchType ? getType(result) === searchType : true)
+        )
+        .sort(
+          (a, b) =>
+            (b.sourceMatchScore ?? 0) - (a.sourceMatchScore ?? 0) ||
+            (b.sourceHealthScore ?? 55) - (a.sourceHealthScore ?? 55) ||
+            (b.weight ?? 0) - (a.weight ?? 0)
+        );
     };
 
     const fetchSourcesData = async (query: string): Promise<SearchResult[]> => {
@@ -11905,6 +11926,17 @@ function PlayPageClient() {
                                 分辨率: {currentSourceVideoInfo.quality}
                               </div>
                               <div>码率: {currentSourceVideoInfo.bitrate}</div>
+                              {Boolean(
+                                currentSourceVideoInfo.sustainabilityRatio
+                              ) && (
+                                <div>
+                                  带宽余量:{' '}
+                                  {currentSourceVideoInfo.sustainabilityRatio?.toFixed(
+                                    1
+                                  )}
+                                  x
+                                </div>
+                              )}
                             </div>
                             <div className='absolute top-full left-1/2 transform -translate-x-1/2 w-0 h-0 border-l-4 border-r-4 border-t-4 border-transparent border-t-gray-800 dark:border-t-gray-900'></div>
                           </div>

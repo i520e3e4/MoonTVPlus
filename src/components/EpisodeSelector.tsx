@@ -10,12 +10,20 @@ import React, {
   useState,
 } from 'react';
 
-import type { DanmakuComment,DanmakuSelection } from '@/lib/danmaku/types';
-import { generateStorageKey, getCachedPlayRecordsSnapshot } from '@/lib/db.client';
+import type { DanmakuComment, DanmakuSelection } from '@/lib/danmaku/types';
+import {
+  generateStorageKey,
+  getCachedPlayRecordsSnapshot,
+} from '@/lib/db.client';
 import { isEpisodeHiddenByFilter } from '@/lib/episode-filter';
 import { loadAllLocalEpisodeProgressRecords } from '@/lib/episode-progress';
 import { isNetdiskSource } from '@/lib/netdisk/source';
-import { EpisodeFilterConfig,SearchResult } from '@/lib/types';
+import {
+  calculatePlaybackSourceScore,
+  parseBitrateKbps,
+  parseLoadSpeedKBps,
+} from '@/lib/playback-source-score';
+import { EpisodeFilterConfig, SearchResult } from '@/lib/types';
 import { getVideoResolutionFromM3u8 } from '@/lib/utils';
 
 import DanmakuPanel from '@/components/DanmakuPanel';
@@ -28,6 +36,9 @@ interface VideoInfo {
   loadSpeed: string;
   pingTime: number;
   bitrate: string; // 视频码率
+  throughputKbps?: number;
+  sustainabilityRatio?: number;
+  manifestMs?: number;
   hasError?: boolean; // 添加错误状态标识
 }
 
@@ -150,7 +161,11 @@ const EpisodeSelector: React.FC<EpisodeSelectorProps> = ({
       const seasons = new Map<number, number[]>();
       const otherEpisodes: number[] = [];
 
-      for (let episodeNumber = 1; episodeNumber <= totalEpisodes; episodeNumber += 1) {
+      for (
+        let episodeNumber = 1;
+        episodeNumber <= totalEpisodes;
+        episodeNumber += 1
+      ) {
         const parsed = parseSxxExxTitle(episodes_titles?.[episodeNumber - 1]);
         if (!parsed) {
           otherEpisodes.push(episodeNumber);
@@ -182,7 +197,10 @@ const EpisodeSelector: React.FC<EpisodeSelectorProps> = ({
       const end = Math.min(start + episodesPerPage - 1, totalEpisodes);
       return {
         label: `${start}-${end}`,
-        episodes: Array.from({ length: end - start + 1 }, (_, idx) => start + idx),
+        episodes: Array.from(
+          { length: end - start + 1 },
+          (_, idx) => start + idx
+        ),
       };
     });
   }, [episodesPerPage, episodes_titles, parseSxxExxTitle, totalEpisodes]);
@@ -206,7 +224,9 @@ const EpisodeSelector: React.FC<EpisodeSelectorProps> = ({
   const [isRetestingAll, setIsRetestingAll] = useState(false);
   // 标记是否正在进行初始测速
   const [isInitialTesting, setIsInitialTesting] = useState(false);
-  const [watchedEpisodes, setWatchedEpisodes] = useState<Set<number>>(new Set());
+  const [watchedEpisodes, setWatchedEpisodes] = useState<Set<number>>(
+    new Set()
+  );
 
   // 使用 ref 来避免闭包问题
   const attemptedSourcesRef = useRef<Set<string>>(new Set());
@@ -241,7 +261,10 @@ const EpisodeSelector: React.FC<EpisodeSelectorProps> = ({
         watched.add(record.index);
       }
     } catch (error) {
-      console.warn('[EpisodeSelector] Failed to read cached play records:', error);
+      console.warn(
+        '[EpisodeSelector] Failed to read cached play records:',
+        error
+      );
     }
 
     try {
@@ -258,17 +281,26 @@ const EpisodeSelector: React.FC<EpisodeSelectorProps> = ({
         }
       }
     } catch (error) {
-      console.warn('[EpisodeSelector] Failed to read local episode progress:', error);
+      console.warn(
+        '[EpisodeSelector] Failed to read local episode progress:',
+        error
+      );
     }
 
     setWatchedEpisodes(watched);
-  }, [currentSource, currentId, episodeProgressContentKey, totalEpisodes, value]);
+  }, [
+    currentSource,
+    currentId,
+    episodeProgressContentKey,
+    totalEpisodes,
+    value,
+  ]);
 
   // 主要的 tab 状态：'danmaku' | 'episodes' | 'sources'
   // 默认显示选集选项卡，但如果是房员则显示弹幕
-  const [activeTab, setActiveTab] = useState<'danmaku' | 'episodes' | 'sources'>(
-    isRoomMember ? 'danmaku' : 'episodes'
-  );
+  const [activeTab, setActiveTab] = useState<
+    'danmaku' | 'episodes' | 'sources'
+  >(isRoomMember ? 'danmaku' : 'episodes');
 
   // 当房员状态变化时，自动切换到弹幕选项卡
   useEffect(() => {
@@ -351,40 +383,58 @@ const EpisodeSelector: React.FC<EpisodeSelectorProps> = ({
   }, [episodeGroupsAsc, totalEpisodes, value]);
 
   // 获取视频信息的函数 - 移除 attemptedSources 依赖避免不必要的重新创建
-  const getVideoInfo = useCallback(async (source: SearchResult) => {
-    const sourceKey = `${source.source}-${source.id}`;
+  const getVideoInfo = useCallback(
+    async (source: SearchResult) => {
+      const sourceKey = `${source.source}-${source.id}`;
 
-    // 使用 ref 获取最新的状态，避免闭包问题
-    if (attemptedSourcesRef.current.has(sourceKey)) {
-      return;
-    }
+      // 使用 ref 获取最新的状态，避免闭包问题
+      if (attemptedSourcesRef.current.has(sourceKey)) {
+        return;
+      }
 
-    // 获取第一集的URL
-    if (!source.episodes || source.episodes.length === 0) {
-      return;
-    }
-    const episodeUrl =
-      source.episodes.length > 1 ? source.episodes[1] : source.episodes[0];
-
-    // 标记为已尝试
-    setAttemptedSources((prev) => new Set(prev).add(sourceKey));
-
-    try {
-      const info = await getVideoResolutionFromM3u8(episodeUrl, speedTestTimeout);
-      setVideoInfoMap((prev) => new Map(prev).set(sourceKey, info));
-    } catch (error) {
-      // 失败时保存错误状态
-      setVideoInfoMap((prev) =>
-        new Map(prev).set(sourceKey, {
-          quality: '错误',
-          loadSpeed: '未知',
-          pingTime: 0,
-          bitrate: '未知',
-          hasError: true,
-        })
+      // 测试当前正在观看的集数；不同集可能位于不同 CDN 节点。
+      if (!source.episodes || source.episodes.length === 0) {
+        return;
+      }
+      const targetIndex = Math.max(
+        0,
+        Math.min(source.episodes.length - 1, value - 1)
       );
-    }
-  }, [speedTestTimeout]);
+      let episodeUrl = source.episodes[targetIndex];
+      const isM3u8 =
+        episodeUrl.toLowerCase().includes('.m3u') ||
+        !episodeUrl.toLowerCase().match(/\.(mp4|flv|webm|mkv|avi|mov)(\?.*)?$/);
+      if (source.proxyMode && isM3u8) {
+        episodeUrl = `/api/proxy/vod/m3u8?url=${encodeURIComponent(
+          episodeUrl
+        )}&source=${encodeURIComponent(source.source)}`;
+      }
+
+      // 标记为已尝试
+      attemptedSourcesRef.current.add(sourceKey);
+      setAttemptedSources((prev) => new Set(prev).add(sourceKey));
+
+      try {
+        const info = await getVideoResolutionFromM3u8(
+          episodeUrl,
+          speedTestTimeout
+        );
+        setVideoInfoMap((prev) => new Map(prev).set(sourceKey, info));
+      } catch (error) {
+        // 失败时保存错误状态
+        setVideoInfoMap((prev) =>
+          new Map(prev).set(sourceKey, {
+            quality: '错误',
+            loadSpeed: '未知',
+            pingTime: 0,
+            bitrate: '未知',
+            hasError: true,
+          })
+        );
+      }
+    },
+    [speedTestTimeout, value]
+  );
 
   // 重测所有源的函数
   const retestAllSources = useCallback(async () => {
@@ -400,17 +450,22 @@ const EpisodeSelector: React.FC<EpisodeSelectorProps> = ({
 
     // 筛选需要测速的源（排除 openlist/emby/xiaoya）
     const sourcesToTest = availableSources.filter((source) => {
-      if (source.source === 'openlist' || source.source === 'emby' || source.source.startsWith('emby_') || source.source === 'xiaoya') {
+      if (
+        source.source === 'openlist' ||
+        source.source === 'emby' ||
+        source.source.startsWith('emby_') ||
+        source.source === 'xiaoya'
+      ) {
         return false;
       }
       return true;
     });
 
-    // 分批测速，每批最多5个
-    const batchSize = 5;
+    // 小批次顺序测速，避免大量媒体分片争抢带宽而污染测速结果。
+    const batchSize = 3;
     for (let i = 0; i < sourcesToTest.length; i += batchSize) {
       const batch = sourcesToTest.slice(i, i + batchSize);
-      await Promise.all(batch.map(source => getVideoInfo(source)));
+      await Promise.all(batch.map((source) => getVideoInfo(source)));
     }
 
     setIsRetestingAll(false);
@@ -463,7 +518,13 @@ const EpisodeSelector: React.FC<EpisodeSelectorProps> = ({
         // 跳过已测速的源
         if (attemptedSourcesRef.current.has(sourceKey)) return false;
         // 跳过不需要测速的源
-        if (source.source === 'openlist' || source.source === 'emby' || source.source.startsWith('emby_') || source.source === 'xiaoya') return false;
+        if (
+          source.source === 'openlist' ||
+          source.source === 'emby' ||
+          source.source.startsWith('emby_') ||
+          source.source === 'xiaoya'
+        )
+          return false;
         return true;
       });
 
@@ -472,7 +533,7 @@ const EpisodeSelector: React.FC<EpisodeSelectorProps> = ({
       // 标记开始初始测速
       setIsInitialTesting(true);
 
-      const batchSize = Math.ceil(pendingSources.length / 2);
+      const batchSize = 3;
 
       for (let start = 0; start < pendingSources.length; start += batchSize) {
         const batch = pendingSources.slice(start, start + batchSize);
@@ -488,7 +549,14 @@ const EpisodeSelector: React.FC<EpisodeSelectorProps> = ({
 
     fetchVideoInfosInBatches();
     // 依赖项保持与之前一致
-  }, [activeTab, availableSources, getVideoInfo, optimizationEnabled, initialTestingCompleted, currentSource]);
+  }, [
+    activeTab,
+    availableSources,
+    getVideoInfo,
+    optimizationEnabled,
+    initialTestingCompleted,
+    currentSource,
+  ]);
 
   // 监听后台加载完成，触发自动测速
   const prevBackgroundLoadingRef = useRef<boolean>(false);
@@ -503,15 +571,25 @@ const EpisodeSelector: React.FC<EpisodeSelectorProps> = ({
           // 跳过已测速的源
           if (attemptedSourcesRef.current.has(sourceKey)) return false;
           // 跳过不需要测速的源
-          if (source.source === 'openlist' || source.source === 'emby' || source.source.startsWith('emby_') || source.source === 'xiaoya') return false;
+          if (
+            source.source === 'openlist' ||
+            source.source === 'emby' ||
+            source.source.startsWith('emby_') ||
+            source.source === 'xiaoya'
+          )
+            return false;
           return true;
         });
 
         if (pendingSources.length > 0) {
-          const batchSize = Math.ceil(pendingSources.length / 2);
+          const batchSize = 3;
 
           const fetchInBatches = async () => {
-            for (let start = 0; start < pendingSources.length; start += batchSize) {
+            for (
+              let start = 0;
+              start < pendingSources.length;
+              start += batchSize
+            ) {
               const batch = pendingSources.slice(start, start + batchSize);
               await Promise.all(batch.map(getVideoInfo));
             }
@@ -528,11 +606,21 @@ const EpisodeSelector: React.FC<EpisodeSelectorProps> = ({
 
     // 更新前一次的加载状态
     prevBackgroundLoadingRef.current = backgroundSourcesLoading;
-  }, [backgroundSourcesLoading, activeTab, availableSources, getVideoInfo, optimizationEnabled, initialTestingCompleted, currentSource]);
+  }, [
+    backgroundSourcesLoading,
+    activeTab,
+    availableSources,
+    getVideoInfo,
+    optimizationEnabled,
+    initialTestingCompleted,
+    currentSource,
+  ]);
 
   // 根据 descending 状态决定分组标签的排序和内容
   const categories = useMemo(() => {
-    const groups = descending ? [...episodeGroupsAsc].reverse() : episodeGroupsAsc;
+    const groups = descending
+      ? [...episodeGroupsAsc].reverse()
+      : episodeGroupsAsc;
     return groups.map((group) => group.label);
   }, [episodeGroupsAsc, descending]);
 
@@ -543,27 +631,33 @@ const EpisodeSelector: React.FC<EpisodeSelectorProps> = ({
   const [isCategoryHovered, setIsCategoryHovered] = useState(false);
 
   // 阻止页面竖向滚动
-  const preventPageScroll = useCallback((e: WheelEvent) => {
-    if (isCategoryHovered) {
-      e.preventDefault();
-    }
-  }, [isCategoryHovered]);
+  const preventPageScroll = useCallback(
+    (e: WheelEvent) => {
+      if (isCategoryHovered) {
+        e.preventDefault();
+      }
+    },
+    [isCategoryHovered]
+  );
 
   // 处理滚轮事件，实现横向滚动
-  const handleWheel = useCallback((e: WheelEvent) => {
-    if (isCategoryHovered && categoryContainerRef.current) {
-      e.preventDefault(); // 阻止默认的竖向滚动
+  const handleWheel = useCallback(
+    (e: WheelEvent) => {
+      if (isCategoryHovered && categoryContainerRef.current) {
+        e.preventDefault(); // 阻止默认的竖向滚动
 
-      const container = categoryContainerRef.current;
-      const scrollAmount = e.deltaY * 2; // 调整滚动速度
+        const container = categoryContainerRef.current;
+        const scrollAmount = e.deltaY * 2; // 调整滚动速度
 
-      // 根据滚轮方向进行横向滚动
-      container.scrollBy({
-        left: scrollAmount,
-        behavior: 'smooth'
-      });
-    }
-  }, [isCategoryHovered]);
+        // 根据滚轮方向进行横向滚动
+        container.scrollBy({
+          left: scrollAmount,
+          behavior: 'smooth',
+        });
+      }
+    },
+    [isCategoryHovered]
+  );
 
   // 添加全局wheel事件监听器
   useEffect(() => {
@@ -644,23 +738,54 @@ const EpisodeSelector: React.FC<EpisodeSelectorProps> = ({
     [onSourceChange]
   );
 
-  // 解析网速字符串，转换为 KB/s 数值用于排序
-  const parseSpeedToKBps = useCallback((speedStr: string): number => {
-    if (!speedStr || speedStr === '未知' || speedStr === '测量中...') {
-      return -1; // 无效速度返回 -1，排在最后
-    }
+  const sourceRankingContext = useMemo(() => {
+    const measured = Array.from(videoInfoMap.values()).filter(
+      (info) => !info.hasError
+    );
+    const speeds = measured
+      .map((info) => parseLoadSpeedKBps(info.loadSpeed) || 0)
+      .filter((speed) => speed > 0);
+    const bitrates = measured
+      .map((info) => parseBitrateKbps(info.bitrate) || 0)
+      .filter((bitrate) => bitrate > 0);
+    return {
+      maxSpeedKBps: speeds.length > 0 ? Math.max(...speeds) : 1024,
+      maxBitrateKbps: bitrates.length > 0 ? Math.max(...bitrates) : 0,
+      maxEpisodeCount: Math.max(
+        1,
+        ...availableSources.map((source) => source.episodes.length)
+      ),
+    };
+  }, [availableSources, videoInfoMap]);
 
-    const match = speedStr.match(/^([\d.]+)\s*(KB\/s|MB\/s)$/);
-    if (!match) {
-      return -1;
-    }
+  const getSmartSourceScore = useCallback(
+    (source: SearchResult): number => {
+      const sourceKey = `${source.source}-${source.id}`;
+      const info = videoInfoMap.get(sourceKey);
+      const prior =
+        (source.sourceMatchScore ?? 100) * 0.35 +
+        (source.sourceHealthScore ?? 55) * 0.35 +
+        Math.min(10, Math.max(-10, source.weight ?? 0)) +
+        Math.min(8, Math.max(-8, source.sourcePreferenceScore ?? 0));
+      if (info?.hasError) return prior - 100;
+      if (!info) return prior;
 
-    const value = parseFloat(match[1]);
-    const unit = match[2];
-
-    // 统一转换为 KB/s
-    return unit === 'MB/s' ? value * 1024 : value;
-  }, []);
+      return calculatePlaybackSourceScore({
+        testResult: info,
+        maxSpeedKBps: sourceRankingContext.maxSpeedKBps,
+        minPingMs: 0,
+        maxPingMs: 0,
+        maxBitrateKbps: sourceRankingContext.maxBitrateKbps,
+        episodeCount: source.episodes.length,
+        maxEpisodeCount: sourceRankingContext.maxEpisodeCount,
+        historicalHealthScore: source.sourceHealthScore ?? 55,
+        preferenceScore: source.sourcePreferenceScore ?? 0,
+        contentMatchScore: source.sourceMatchScore ?? 100,
+        configuredWeight: source.weight ?? 0,
+      });
+    },
+    [sourceRankingContext, videoInfoMap]
+  );
 
   // 重新测试单个源
   const handleRetestSource = useCallback(
@@ -710,15 +835,20 @@ const EpisodeSelector: React.FC<EpisodeSelectorProps> = ({
           <div
             onClick={() => !isRoomMember && setActiveTab('episodes')}
             className={`flex-1 py-3 px-6 text-center transition-all duration-200 font-medium relative
-              ${isRoomMember ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'}
-              ${activeTab === 'episodes'
-                ? 'text-green-600 dark:text-green-400'
-                : inactiveTabClass
+              ${
+                isRoomMember
+                  ? 'cursor-not-allowed opacity-50'
+                  : 'cursor-pointer'
+              }
+              ${
+                activeTab === 'episodes'
+                  ? 'text-green-600 dark:text-green-400'
+                  : inactiveTabClass
               }
             `.trim()}
           >
             选集
-            {isRoomMember && <span className="ml-1 text-xs">🔒</span>}
+            {isRoomMember && <span className='ml-1 text-xs'>🔒</span>}
           </div>
         )}
 
@@ -727,23 +857,25 @@ const EpisodeSelector: React.FC<EpisodeSelectorProps> = ({
           onClick={() => !isRoomMember && handleSourceTabClick()}
           className={`flex-1 py-3 px-6 text-center transition-all duration-200 font-medium relative
             ${isRoomMember ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'}
-            ${activeTab === 'sources'
-              ? 'text-green-600 dark:text-green-400'
-              : inactiveTabClass
+            ${
+              activeTab === 'sources'
+                ? 'text-green-600 dark:text-green-400'
+                : inactiveTabClass
             }
           `.trim()}
         >
           换源
-          {isRoomMember && <span className="ml-1 text-xs">🔒</span>}
+          {isRoomMember && <span className='ml-1 text-xs'>🔒</span>}
         </div>
 
         {/* 弹幕选项卡 */}
         <div
           onClick={() => setActiveTab('danmaku')}
           className={`flex-1 py-3 px-6 text-center cursor-pointer transition-all duration-200 font-medium
-            ${activeTab === 'danmaku'
-              ? 'text-green-600 dark:text-green-400'
-              : inactiveTabClass
+            ${
+              activeTab === 'danmaku'
+                ? 'text-green-600 dark:text-green-400'
+                : inactiveTabClass
             }
           `.trim()}
         >
@@ -786,9 +918,10 @@ const EpisodeSelector: React.FC<EpisodeSelectorProps> = ({
                       }}
                       onClick={() => handleCategoryClick(idx)}
                       className={`w-20 relative py-2 text-sm font-medium transition-colors whitespace-nowrap flex-shrink-0 text-center 
-                        ${isActive
-                          ? 'text-green-500 dark:text-green-400'
-                          : inactiveActionTextClass
+                        ${
+                          isActive
+                            ? 'text-green-500 dark:text-green-400'
+                            : inactiveActionTextClass
                         }
                       `.trim()}
                     >
@@ -841,7 +974,7 @@ const EpisodeSelector: React.FC<EpisodeSelectorProps> = ({
                 : currentEpisodeGroup.episodes;
               // 过滤掉被屏蔽的集数，但保持原有索引
               return episodes
-                .filter(episodeNumber => !isEpisodeFiltered(episodeNumber))
+                .filter((episodeNumber) => !isEpisodeFiltered(episodeNumber))
                 .map((episodeNumber) => {
                   const isActive = episodeNumber === value;
                   const isWatched = watchedEpisodes.has(episodeNumber);
@@ -851,9 +984,10 @@ const EpisodeSelector: React.FC<EpisodeSelectorProps> = ({
                       disabled={isActive}
                       onClick={() => handleEpisodeClick(episodeNumber - 1)}
                       className={`relative h-10 min-w-10 px-3 py-2 flex items-center justify-center text-sm font-medium rounded-md transition-all duration-200 whitespace-nowrap font-mono border
-                        ${isActive
-                          ? 'bg-green-500 text-white border-green-400 shadow-lg shadow-green-500/25 dark:bg-green-600'
-                          : isWatched
+                        ${
+                          isActive
+                            ? 'bg-green-500 text-white border-green-400 shadow-lg shadow-green-500/25 dark:bg-green-600'
+                            : isWatched
                             ? 'bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100 hover:scale-105 dark:bg-emerald-900/20 dark:text-emerald-300 dark:border-emerald-700/60 dark:hover:bg-emerald-900/30'
                             : inactiveEpisodeClass
                         } ${isActive ? 'cursor-default' : ''}`.trim()}
@@ -873,12 +1007,16 @@ const EpisodeSelector: React.FC<EpisodeSelectorProps> = ({
                           return title;
                         }
                         // 如果匹配 S01E01 格式，只显示集数部分（去掉 SxxE）
-                        const sxxexxMatch = title.match(/[Ss]\d+[Ee](\d{1,4}(?:\.\d+)?)/);
+                        const sxxexxMatch = title.match(
+                          /[Ss]\d+[Ee](\d{1,4}(?:\.\d+)?)/
+                        );
                         if (sxxexxMatch) {
                           return sxxexxMatch[1];
                         }
                         // 如果匹配"第X集"、"第X话"、"X集"、"X话"格式，提取中间的数字（支持小数）
-                        const match = title.match(/(?:第)?(\d+(?:\.\d+)?)(?:集|话)/);
+                        const match = title.match(
+                          /(?:第)?(\d+(?:\.\d+)?)(?:集|话)/
+                        );
                         if (match) {
                           return match[1];
                         }
@@ -896,21 +1034,33 @@ const EpisodeSelector: React.FC<EpisodeSelectorProps> = ({
       {activeTab === 'sources' && (
         <div className='flex flex-col h-full mt-2'>
           {/* 全部重测按钮 - 右上角 */}
-          {!sourceSearchLoading && !sourceSearchError && availableSources.length > 0 && (
-            <div className='flex justify-end mb-2 px-2 pb-2 border-b border-gray-300 dark:border-gray-700'>
-              <button
-                onClick={retestAllSources}
-                disabled={isRetestingAll || retestingSources.size > 0 || isInitialTesting}
-                className={`text-xs font-medium transition-colors ${
-                  isRetestingAll || retestingSources.size > 0 || isInitialTesting
-                    ? disabledTextClass
-                    : 'text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 cursor-pointer'
-                }`}
-              >
-                {isRetestingAll ? '重测中...' : isInitialTesting ? '测速中...' : '全部重测'}
-              </button>
-            </div>
-          )}
+          {!sourceSearchLoading &&
+            !sourceSearchError &&
+            availableSources.length > 0 && (
+              <div className='flex justify-end mb-2 px-2 pb-2 border-b border-gray-300 dark:border-gray-700'>
+                <button
+                  onClick={retestAllSources}
+                  disabled={
+                    isRetestingAll ||
+                    retestingSources.size > 0 ||
+                    isInitialTesting
+                  }
+                  className={`text-xs font-medium transition-colors ${
+                    isRetestingAll ||
+                    retestingSources.size > 0 ||
+                    isInitialTesting
+                      ? disabledTextClass
+                      : 'text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 cursor-pointer'
+                  }`}
+                >
+                  {isRetestingAll
+                    ? '重测中...'
+                    : isInitialTesting
+                    ? '测速中...'
+                    : '全部重测'}
+                </button>
+              </div>
+            )}
 
           {sourceSearchLoading && (
             <div className='flex items-center justify-center py-8'>
@@ -938,9 +1088,7 @@ const EpisodeSelector: React.FC<EpisodeSelectorProps> = ({
               <div className='flex items-center justify-center py-8'>
                 <div className='text-center'>
                   <div className='text-gray-400 text-2xl mb-2'>📺</div>
-                  <p className={`text-sm ${mutedTextClass}`}>
-                    暂无可用的换源
-                  </p>
+                  <p className={`text-sm ${mutedTextClass}`}>暂无可用的换源</p>
                 </div>
               </div>
             )}
@@ -950,6 +1098,7 @@ const EpisodeSelector: React.FC<EpisodeSelectorProps> = ({
             availableSources.length > 0 && (
               <div className='flex-1 overflow-y-auto space-y-2 pb-20'>
                 {availableSources
+                  .slice()
                   .sort((a, b) => {
                     const aIsCurrent =
                       a.source?.toString() === currentSource?.toString() &&
@@ -962,21 +1111,9 @@ const EpisodeSelector: React.FC<EpisodeSelectorProps> = ({
                     if (aIsCurrent && !bIsCurrent) return -1;
                     if (!aIsCurrent && bIsCurrent) return 1;
 
-                    // 如果初始测速已完成，按网速排序（快的在前）
-                    if (initialTestingCompleted) {
-                      const aKey = `${a.source}-${a.id}`;
-                      const bKey = `${b.source}-${b.id}`;
-                      const aInfo = videoInfoMap.get(aKey);
-                      const bInfo = videoInfoMap.get(bKey);
-
-                      const aSpeed = aInfo ? parseSpeedToKBps(aInfo.loadSpeed) : -1;
-                      const bSpeed = bInfo ? parseSpeedToKBps(bInfo.loadSpeed) : -1;
-
-                      // 速度快的排在前面（降序）
-                      return bSpeed - aSpeed;
-                    }
-
-                    return 0;
+                    // 与自动播放使用同一套综合评分，避免换源面板再次用
+                    // “只看速度”的排序覆盖主选源结果。
+                    return getSmartSourceScore(b) - getSmartSourceScore(a);
                   })
                   .map((source, index) => {
                     const isCurrentSource =
@@ -989,10 +1126,11 @@ const EpisodeSelector: React.FC<EpisodeSelectorProps> = ({
                           !isCurrentSource && handleSourceClick(source)
                         }
                         className={`flex items-start gap-3 px-2 py-3 rounded-lg transition-all select-none duration-200 relative
-                      ${isCurrentSource
-                         ? 'bg-green-500/10 dark:bg-green-500/20 border-green-500/30 border'
+                      ${
+                        isCurrentSource
+                          ? 'bg-green-500/10 dark:bg-green-500/20 border-green-500/30 border'
                           : 'hover:bg-gray-200/50 dark:hover:bg-white/10 hover:scale-[1.02] cursor-pointer'
-                          }`.trim()}
+                      }`.trim()}
                       >
                         {/* 封面 */}
                         <div className='flex-shrink-0 w-12 h-20 bg-gray-300 dark:bg-gray-600 rounded overflow-hidden flex items-center justify-center'>
@@ -1017,7 +1155,9 @@ const EpisodeSelector: React.FC<EpisodeSelectorProps> = ({
                           {/* 标题和分辨率 - 顶部 */}
                           <div className='flex items-start justify-between gap-3 h-6'>
                             <div className='flex-1 min-w-0 relative group/title'>
-                              <h3 className={`font-medium text-base truncate ${sourceTitleClass} leading-none`}>
+                              <h3
+                                className={`font-medium text-base truncate ${sourceTitleClass} leading-none`}
+                              >
                                 {source.title}
                               </h3>
                               {/* 标题级别的 tooltip - 第一个元素不显示 */}
@@ -1050,8 +1190,8 @@ const EpisodeSelector: React.FC<EpisodeSelectorProps> = ({
                                   const textColorClasses = isUltraHigh
                                     ? 'text-purple-600 dark:text-purple-400'
                                     : isHigh
-                                      ? 'text-green-600 dark:text-green-400'
-                                      : 'text-yellow-600 dark:text-yellow-400';
+                                    ? 'text-green-600 dark:text-green-400'
+                                    : 'text-yellow-600 dark:text-yellow-400';
 
                                   return (
                                     <div
@@ -1069,15 +1209,25 @@ const EpisodeSelector: React.FC<EpisodeSelectorProps> = ({
 
                           {/* 源名称和集数信息 - 垂直居中 */}
                           <div className='flex items-center justify-between'>
-                            <span className={`text-xs px-2 py-1 border rounded ${sourcePillTextClass} ${
-                              source.source === 'xiaoya' ? 'border-blue-500' : isNetdiskSource(source.source) ? 'border-purple-500' : source.source === 'openlist' || source.source === 'emby' || source.source?.startsWith('emby_')
-                           ? 'border-yellow-500'
-                                : 'border-gray-500/60'
-                      }`}>
+                            <span
+                              className={`text-xs px-2 py-1 border rounded ${sourcePillTextClass} ${
+                                source.source === 'xiaoya'
+                                  ? 'border-blue-500'
+                                  : isNetdiskSource(source.source)
+                                  ? 'border-purple-500'
+                                  : source.source === 'openlist' ||
+                                    source.source === 'emby' ||
+                                    source.source?.startsWith('emby_')
+                                  ? 'border-yellow-500'
+                                  : 'border-gray-500/60'
+                              }`}
+                            >
                               {source.source_name}
                             </span>
                             {source.episodes.length > 1 && (
-                              <span className={`text-xs ${faintTextClass} font-medium`}>
+                              <span
+                                className={`text-xs ${faintTextClass} font-medium`}
+                              >
                                 {source.episodes.length} 集
                               </span>
                             )}
@@ -1099,9 +1249,29 @@ const EpisodeSelector: React.FC<EpisodeSelectorProps> = ({
                                         <div className='text-orange-600 dark:text-orange-400 font-medium text-xs'>
                                           {videoInfo.pingTime}ms
                                         </div>
-                                        {videoInfo.bitrate && videoInfo.bitrate !== '未知' && (
-                                          <div className='text-purple-600 dark:text-purple-400 font-medium text-xs'>
-                                            {videoInfo.bitrate}
+                                        {videoInfo.bitrate &&
+                                          videoInfo.bitrate !== '未知' && (
+                                            <div className='text-purple-600 dark:text-purple-400 font-medium text-xs'>
+                                              {videoInfo.bitrate}
+                                            </div>
+                                          )}
+                                        {Boolean(
+                                          videoInfo.sustainabilityRatio
+                                        ) && (
+                                          <div
+                                            className={`font-medium text-xs ${
+                                              (videoInfo.sustainabilityRatio ||
+                                                0) >= 1.5
+                                                ? 'text-emerald-600 dark:text-emerald-400'
+                                                : 'text-red-600 dark:text-red-400'
+                                            }`}
+                                            title='实际下载吞吐量与最高画质码率之比；1.5x 以上更稳定'
+                                          >
+                                            余量{' '}
+                                            {videoInfo.sustainabilityRatio?.toFixed(
+                                              1
+                                            )}
+                                            x
                                           </div>
                                         )}
                                       </div>
@@ -1120,7 +1290,12 @@ const EpisodeSelector: React.FC<EpisodeSelectorProps> = ({
                             {/* 重新测试按钮 */}
                             {(() => {
                               // 私人影库、Emby 和小雅不显示重新测试按钮
-                              if (source.source === 'openlist' || source.source === 'emby' || source.source.startsWith('emby_') || source.source === 'xiaoya') {
+                              if (
+                                source.source === 'openlist' ||
+                                source.source === 'emby' ||
+                                source.source.startsWith('emby_') ||
+                                source.source === 'xiaoya'
+                              ) {
                                 return null;
                               }
 
@@ -1132,7 +1307,9 @@ const EpisodeSelector: React.FC<EpisodeSelectorProps> = ({
                               if (videoInfo) {
                                 return (
                                   <button
-                                    onClick={(e) => handleRetestSource(source, e)}
+                                    onClick={(e) =>
+                                      handleRetestSource(source, e)
+                                    }
                                     disabled={isTesting}
                                     className={`text-xs font-medium transition-colors ${
                                       isTesting

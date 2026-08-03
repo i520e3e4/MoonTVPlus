@@ -678,6 +678,9 @@ export async function getVideoResolutionFromM3u8(
   loadSpeed: string; // 自动转换为KB/s或MB/s
   pingTime: number; // 网络延迟（毫秒）
   bitrate: string; // 视频码率（如 "2.5 Mbps"）
+  throughputKbps: number; // 首个媒体分片的实际下载吞吐量
+  sustainabilityRatio: number; // 吞吐量 / 最高可用画质码率
+  manifestMs: number; // HLS 清单响应时间
 }> {
   try {
     const { default: Hls } = await import('hls.js');
@@ -700,31 +703,43 @@ export async function getVideoResolutionFromM3u8(
       let hasSpeedCalculated = false;
       let hasMetadataLoaded = false;
       let estimatedBitrate = 0; // 估算的码率（bps）
+      let declaredBitrate = 0;
+      let declaredWidth = 0;
+      let declaredHeight = 0;
+      let throughputKbps = 0;
 
       // 提取核心返回逻辑供 resolve 和 timeout 共同调用
       const resolveCurrentState = () => {
-        const width = video.videoWidth;
+        const width = Math.max(video.videoWidth, declaredWidth);
+        const height = Math.max(video.videoHeight, declaredHeight);
         const quality =
-          width >= 3840
+          height >= 2160 || width >= 3840
             ? '4K'
-            : width >= 2560
+            : height >= 1440 || width >= 2560
             ? '2K'
-            : width >= 1920
+            : height >= 1080 || width >= 1920
             ? '1080p'
-            : width >= 1280
+            : height >= 720 || width >= 1280
             ? '720p'
-            : width >= 854
+            : height >= 480 || width >= 854
             ? '480p'
-            : width > 0
+            : width > 0 || height > 0
             ? 'SD'
             : '未知';
 
+        const scoringBitrate = Math.max(estimatedBitrate, declaredBitrate);
+
         const bitrateStr =
-          estimatedBitrate > 0
-            ? estimatedBitrate >= 1000000
-              ? `${(estimatedBitrate / 1000000).toFixed(1)} Mbps`
-              : `${Math.round(estimatedBitrate / 1000)} Kbps`
+          scoringBitrate > 0
+            ? scoringBitrate >= 1000000
+              ? `${(scoringBitrate / 1000000).toFixed(1)} Mbps`
+              : `${Math.round(scoringBitrate / 1000)} Kbps`
             : '未知';
+        const referenceBitrateKbps = scoringBitrate / 1000;
+        const sustainabilityRatio =
+          throughputKbps > 0 && referenceBitrateKbps > 0
+            ? throughputKbps / referenceBitrateKbps
+            : 0;
 
         hls.destroy();
         video.remove();
@@ -734,6 +749,9 @@ export async function getVideoResolutionFromM3u8(
           loadSpeed: actualLoadSpeed,
           pingTime: Math.round(pingTime),
           bitrate: bitrateStr,
+          throughputKbps: Math.round(throughputKbps),
+          sustainabilityRatio: Math.round(sustainabilityRatio * 100) / 100,
+          manifestMs: Math.round(pingTime),
         });
       };
 
@@ -786,6 +804,7 @@ export async function getVideoResolutionFromM3u8(
 
           if (loadTime > 0 && size > 0) {
             const speedKBps = size / 1024 / (loadTime / 1000);
+            throughputKbps = speedKBps * 8;
 
             // 立即计算速度，无需等待更多分片
             const avgSpeedKBps = speedKBps;
@@ -827,6 +846,22 @@ export async function getVideoResolutionFromM3u8(
         }
       });
 
+      hls.on(Hls.Events.MANIFEST_PARSED, () => {
+        const levels = Array.isArray(hls.levels) ? hls.levels : [];
+        levels.forEach((level) => {
+          const bitrate = Number(level?.bitrate) || 0;
+          const width = Number(level?.width) || 0;
+          const height = Number(level?.height) || 0;
+          if (bitrate > declaredBitrate) declaredBitrate = bitrate;
+          if (width > declaredWidth) declaredWidth = width;
+          if (height > declaredHeight) declaredHeight = height;
+        });
+        if (declaredWidth > 0 || declaredHeight > 0) {
+          hasMetadataLoaded = true;
+          checkAndResolve();
+        }
+      });
+
       hls.loadSource(m3u8Url);
       hls.attachMedia(video);
 
@@ -852,6 +887,9 @@ export async function getVideoResolutionFromM3u8(
               loadSpeed: '直连',
               pingTime: 10,
               bitrate: '未知',
+              throughputKbps: 0,
+              sustainabilityRatio: 0,
+              manifestMs: 10,
             });
             return;
           }
