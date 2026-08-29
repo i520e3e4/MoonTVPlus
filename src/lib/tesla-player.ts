@@ -41,10 +41,13 @@ export interface TeslaPlayerCallbacks {
 export interface TeslaPlayerOptions extends TeslaPlayerCallbacks {
   /** 是否直播模式，默认 false（点播） */
   live?: boolean;
+  /** Returns true when a newer playback request has superseded this one. */
+  isCancelled?: () => boolean;
 }
 
 export interface TeslaPlayerHandle {
-  destroy: () => void;
+  /** Clears the container by default; stale initializations can opt out. */
+  destroy: (clearContainer?: boolean) => void;
   pause: () => void;
   resume: () => void;
   seek: (seconds: number) => void;
@@ -108,6 +111,9 @@ export async function createTeslaPlayer(
   }
 
   const mod = await loadPlayerModule();
+  if (opts.isCancelled?.()) {
+    throw new Error('播放器初始化已取消');
+  }
   const Player = mod.m || mod.default || mod.Player;
   if (typeof Player !== 'function') {
     throw new Error('播放库未导出 Player');
@@ -169,7 +175,7 @@ export async function createTeslaPlayer(
     opts.onFirstFrame?.();
   };
 
-  const destroy = () => {
+  const destroy = (clearContainer = true) => {
     destroyed = true;
     clearTimers();
     const current = player;
@@ -187,11 +193,11 @@ export async function createTeslaPlayer(
     } catch {
       /* ignore */
     }
-    if (container) container.innerHTML = '';
+    if (clearContainer && container) container.innerHTML = '';
   };
 
   const start = async (fallback: boolean) => {
-    if (destroyed) return;
+    if (destroyed || opts.isCancelled?.()) return;
     if (fallback) decodePresetId = DECODE_PRESET_SOFTWARE;
 
     // 重建前先销毁旧实例（切换硬/软解或重试）
@@ -204,6 +210,7 @@ export async function createTeslaPlayer(
       player = null;
     }
     if (container) container.innerHTML = '';
+    if (opts.isCancelled?.()) return;
 
     player = new Player({
       container,
@@ -249,6 +256,7 @@ export async function createTeslaPlayer(
     });
 
     try {
+      if (opts.isCancelled?.()) return;
       // 确保 URL 为绝对地址：libmedia 的 IO 在 Worker 里 fetch，相对路径会解析失败
       // （MoonTVPlus 的代理地址形如 /api/proxy-m3u8?...，需基于当前页面 origin 转成绝对 URL）
       let absoluteUrl = url;

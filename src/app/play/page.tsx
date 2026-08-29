@@ -1731,6 +1731,9 @@ function PlayPageClient() {
   const artPlayerRef = useRef<any>(null);
   const artRef = useRef<HTMLDivElement | null>(null);
   const teslaPlayerRef = useRef<TeslaPlayerHandle | null>(null); // Tesla 车载 WebCodecs 播放实例
+  // 换集/换源时 createTeslaPlayer 会异步加载静态模块。序号用于丢弃已经过期的初始化结果，
+  // 防止旧实例在新视频开始后重新写入容器。
+  const teslaPlayerInitSequenceRef = useRef(0);
   const syncAnime4KCanvasFlip = (flip?: string) => {
     const canvas = anime4kRef.current?.canvas as HTMLCanvasElement | undefined;
     if (!canvas) return;
@@ -3692,6 +3695,7 @@ function PlayPageClient() {
     revokeCustomSubtitle();
 
     // 清理 Tesla 车载 WebCodecs 播放实例
+    teslaPlayerInitSequenceRef.current += 1;
     if (teslaPlayerRef.current) {
       try {
         teslaPlayerRef.current.destroy();
@@ -5796,8 +5800,10 @@ function PlayPageClient() {
   // ---------------------------------------------------------------------------
   // 保存播放进度
   const saveCurrentPlayProgress = async () => {
+    const artPlayer = artPlayerRef.current;
+    const teslaPlayer = teslaPlayerRef.current;
     if (
-      !artPlayerRef.current ||
+      (!artPlayer && !teslaPlayer) ||
       !currentSourceRef.current ||
       !currentIdRef.current ||
       !videoTitleRef.current ||
@@ -5806,9 +5812,12 @@ function PlayPageClient() {
       return;
     }
 
-    const player = artPlayerRef.current;
-    const currentTime = player.currentTime || 0;
-    const duration = player.duration || 0;
+    const currentTime = artPlayer
+      ? artPlayer.currentTime || 0
+      : teslaPlayer?.getCurrentTime() || 0;
+    const duration = artPlayer
+      ? artPlayer.duration || 0
+      : teslaPlayer?.getDuration() || 0;
     const playTime = Math.floor(currentTime);
 
     // 如果播放时间太短（少于5秒）或者视频时长无效，不保存
@@ -5860,10 +5869,13 @@ function PlayPageClient() {
    *
    * 说明：
    *   - 换源/选集/切清晰度均通过 setVideoUrl 触发外层 useEffect 重建；
-   *   - 播放记录（saveCurrentPlayProgress）当前硬依赖 artPlayerRef，Tesla 模式暂不接入，
-   *     后续可基于 onTime 回调独立实现。
+   *   - 初始化序号会使过期的异步实例自行销毁，避免快速换集时出现旧视频覆盖新视频。
    */
   const initTeslaPlayer = async (url: string) => {
+    const initSequence = ++teslaPlayerInitSequenceRef.current;
+    const isCurrentInitialization = () =>
+      teslaPlayerInitSequenceRef.current === initSequence;
+
     // 销毁旧实例并清空容器
     if (teslaPlayerRef.current) {
       try {
@@ -5894,20 +5906,23 @@ function PlayPageClient() {
     setVideoError(null);
 
     // Tesla 模式强制走同源代理：libmedia 通过 fetch 拉流，跨域受限的源会直接失败，
-    // 直链统一改写成 /api/proxy-m3u8 同源地址以规避 CORS。
+    // 清单、分片和密钥均通过同源代理：libmedia 在 Worker 内 fetch，任一远程分片
+    // 缺少 CORS 响应头都会导致播放中断。
     let playUrl = url;
     if (!isProxiedPlayUrl(playUrl)) {
       playUrl = buildProxyM3u8Url(
         playUrl,
         currentSourceRef.current || 'directplay',
-        false
+        true
       );
     }
 
     try {
-      teslaPlayerRef.current = await createTeslaPlayer(container, playUrl, {
+      const player = await createTeslaPlayer(container, playUrl, {
         live: false,
+        isCancelled: () => !isCurrentInitialization(),
         onFirstFrame: () => {
+          if (!isCurrentInitialization()) return;
           setIsVideoLoading(false);
           // 应用上次保存的倍速（libmedia 引擎需显式设置）
           const savedRate = loadSavedPlaybackRate();
@@ -5918,17 +5933,28 @@ function PlayPageClient() {
           setTeslaPlaybackRate(effectiveRate);
         },
         onError: (error) => {
+          if (!isCurrentInitialization()) return;
           setIsVideoLoading(false);
           setVideoError(error.message || '播放失败');
         },
         onStatus: (message) => {
+          if (!isCurrentInitialization()) return;
           console.log('[Tesla Player]', message);
         },
         onTime: (currentTime, duration) => {
+          if (!isCurrentInitialization()) return;
+          const now = Date.now();
+          const saveInterval =
+            process.env.NEXT_PUBLIC_STORAGE_TYPE === 'upstash'
+              ? 20_000
+              : 5_000;
+          if (now - lastSaveTimeRef.current > saveInterval) {
+            void saveCurrentPlayProgress();
+          }
+
           // 跳过片头片尾（复用 ArtPlayer 的 skipConfig 逻辑）
           const skipCfg = skipConfigRef.current;
           if (!skipCfg.enable) return;
-          const now = Date.now();
           // 限制跳过检查频率为 1.5 秒一次
           if (now - lastSkipCheckRef.current < 1500) return;
           lastSkipCheckRef.current = now;
@@ -5961,6 +5987,7 @@ function PlayPageClient() {
           }
         },
         onEnded: () => {
+          if (!isCurrentInitialization()) return;
           // 房员禁用自动播放下一集
           if (playSync.shouldDisableControls) {
             console.log('[Tesla Player] 房员禁用自动播放下一集');
@@ -5987,7 +6014,13 @@ function PlayPageClient() {
           }
         },
       });
+      if (!isCurrentInitialization()) {
+        player.destroy(false);
+        return;
+      }
+      teslaPlayerRef.current = player;
     } catch (error) {
+      if (!isCurrentInitialization()) return;
       setIsVideoLoading(false);
       setVideoError((error as Error).message || '播放初始化失败');
     }
