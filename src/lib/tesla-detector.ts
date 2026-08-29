@@ -4,6 +4,22 @@
 
 const STORAGE_KEY = 'moontv_tesla_webcodecs_mode';
 
+export type TeslaPlaybackMode = 'auto' | 'tesla' | 'standard';
+
+/** Returns the user's explicit playback-mode preference, if one was saved. */
+export function getTeslaPlaybackMode(): TeslaPlaybackMode {
+  try {
+    if (typeof localStorage !== 'undefined') {
+      const saved = localStorage.getItem(STORAGE_KEY);
+      if (saved === 'on') return 'tesla';
+      if (saved === 'off') return 'standard';
+    }
+  } catch {
+    /* ignore */
+  }
+  return 'auto';
+}
+
 /** 通过 UA 判断是否为 Tesla 车机浏览器（宽松匹配，Tesla 浏览器 UA 含 "Tesla"） */
 export function isTeslaBrowser(): boolean {
   if (typeof navigator === 'undefined') return false;
@@ -17,16 +33,19 @@ export function isTeslaBrowser(): boolean {
  *   - 未设置时回退到 UA 自动检测。
  */
 export function isTeslaWebCodecsModeEnabled(): boolean {
-  try {
-    if (typeof localStorage !== 'undefined') {
-      const saved = localStorage.getItem(STORAGE_KEY);
-      if (saved === 'on') return true;
-      if (saved === 'off') return false;
-    }
-  } catch {
-    /* ignore */
-  }
+  const mode = getTeslaPlaybackMode();
+  if (mode === 'tesla') return true;
+  if (mode === 'standard') return false;
   return isTeslaBrowser();
+}
+
+/** Saves a playback-mode preference. `auto` returns to Tesla UA detection. */
+export function setTeslaPlaybackMode(mode: TeslaPlaybackMode): void {
+  if (mode === 'auto') {
+    resetTeslaWebCodecsMode();
+  } else {
+    setTeslaWebCodecsMode(mode === 'tesla');
+  }
 }
 
 /** 手动设置 WebCodecs 播放模式开关（持久化到 localStorage） */

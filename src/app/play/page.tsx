@@ -72,7 +72,12 @@ import {
   convertSubtitleFileToVttObjectUrl,
   CUSTOM_SUBTITLE_ACCEPT,
 } from '@/lib/subtitle-converter';
-import { isTeslaWebCodecsModeEnabled } from '@/lib/tesla-detector';
+import {
+  getTeslaPlaybackMode,
+  isTeslaWebCodecsModeEnabled,
+  setTeslaPlaybackMode,
+  type TeslaPlaybackMode,
+} from '@/lib/tesla-detector';
 import {
   type TeslaPlayerHandle,
   createTeslaPlayer,
@@ -1432,6 +1437,30 @@ function PlayPageClient() {
       setTeslaPlaybackRate(effectiveRate);
     }
   };
+
+  const [teslaPlaybackMode, setTeslaPlaybackModeState] =
+    useState<TeslaPlaybackMode>(() => getTeslaPlaybackMode());
+
+  const cycleTeslaPlaybackMode = () => {
+    const nextMode: TeslaPlaybackMode =
+      teslaPlaybackMode === 'auto'
+        ? 'tesla'
+        : teslaPlaybackMode === 'tesla'
+          ? 'standard'
+          : 'auto';
+    setTeslaPlaybackMode(nextMode);
+    setTeslaPlaybackModeState(nextMode);
+    // The two modes use different player implementations. Reloading is the
+    // safest way to dispose the current engine before starting the other one.
+    window.location.reload();
+  };
+
+  const teslaPlaybackModeLabel =
+    teslaPlaybackMode === 'auto'
+      ? '自动'
+      : teslaPlaybackMode === 'tesla'
+        ? 'Tesla 车机'
+        : '普通';
 
   // 用于记录是否需要在播放器 ready 后跳转到指定进度
   const resumeTimeRef = useRef<number | null>(null);
@@ -8838,17 +8867,26 @@ function PlayPageClient() {
                   className='bg-black w-full h-full rounded-xl overflow-hidden shadow-lg'
                 ></div>
 
-                {/* Tesla 车载模式倍速控件 */}
-                {isTeslaWebCodecsModeEnabled() && (
-                  <div className='absolute top-3 right-3 z-[400] flex items-center gap-2'>
+                {/* 播放模式和 Tesla 车载模式倍速控件 */}
+                <div className='absolute top-3 right-3 z-[400] flex items-center gap-2'>
+                  <button
+                    type='button'
+                    onClick={cycleTeslaPlaybackMode}
+                    title='切换播放模式：自动、Tesla 车机、普通'
+                    className='px-4 py-2 bg-black/60 hover:bg-black/80 backdrop-blur-sm text-white text-sm font-medium rounded-lg border border-white/20 transition-colors duration-200'
+                  >
+                    模式：{teslaPlaybackModeLabel}
+                  </button>
+                  {isTeslaWebCodecsModeEnabled() && (
                     <button
+                      type='button'
                       onClick={cycleTeslaPlaybackRate}
                       className='px-4 py-2 bg-black/60 hover:bg-black/80 backdrop-blur-sm text-white text-sm font-medium rounded-lg border border-white/20 transition-colors duration-200'
                     >
                       倍速 {teslaPlaybackRate}x
                     </button>
-                  </div>
-                )}
+                  )}
+                </div>
 
                 {/* 换源加载蒙层 */}
                 {(isVideoLoading || videoError) && (
