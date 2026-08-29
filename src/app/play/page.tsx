@@ -72,6 +72,12 @@ import {
   convertSubtitleFileToVttObjectUrl,
   CUSTOM_SUBTITLE_ACCEPT,
 } from '@/lib/subtitle-converter';
+import { isTeslaWebCodecsModeEnabled } from '@/lib/tesla-detector';
+import {
+  type TeslaPlayerHandle,
+  createTeslaPlayer,
+  isWebCodecsSupported,
+} from '@/lib/tesla-player';
 import { getTMDBImageUrl } from '@/lib/tmdb.search';
 import { EpisodeFilterConfig, SearchResult } from '@/lib/types';
 import {
@@ -163,6 +169,9 @@ interface JassubSubtitleInstance {
 }
 
 const PLAYBACK_RATE_OPTIONS = [0.5, 0.75, 1, 1.25, 1.5, 2, 3, 4];
+// libmedia 的 WebCodecs AVPlayer 将倍速限制在 0.5x–2x。单独列出，避免
+// Tesla 控件显示 3x/4x、但底层悄悄回退为 2x 的假象。
+const TESLA_PLAYBACK_RATE_OPTIONS = [0.5, 0.75, 1, 1.25, 1.5, 2];
 const JASSUB_ASSET_BASE = '/assets/jassub';
 const JASSUB_CJK_FONT_FAMILY = 'noto sans cjk sc';
 const JASSUB_CJK_FONT_URL = `${JASSUB_ASSET_BASE}/NotoSansCJK-Regular.ttc`;
@@ -1327,15 +1336,24 @@ function PlayPageClient() {
   };
 
   const adjustPlaybackRateByStep = (direction: 1 | -1) => {
-    if (!artPlayerRef.current) {
+    const teslaPlayer = teslaPlayerRef.current;
+    const artPlayer = artPlayerRef.current;
+    if (!teslaPlayer && !artPlayer) {
       return false;
     }
 
-    const currentRate = artPlayerRef.current.playbackRate || 1;
-    const currentIndex = PLAYBACK_RATE_OPTIONS.reduce(
+    const rateOptions = teslaPlayer
+      ? TESLA_PLAYBACK_RATE_OPTIONS
+      : PLAYBACK_RATE_OPTIONS;
+    const currentRate = teslaPlayer
+      ? teslaPlaybackRateRef.current
+      : artPlayer
+        ? artPlayer.playbackRate || 1
+        : 1;
+    const currentIndex = rateOptions.reduce(
       (nearestIndex, rate, index) => {
         return Math.abs(rate - currentRate) <
-          Math.abs(PLAYBACK_RATE_OPTIONS[nearestIndex] - currentRate)
+          Math.abs(rateOptions[nearestIndex] - currentRate)
           ? index
           : nearestIndex;
       },
@@ -1343,12 +1361,12 @@ function PlayPageClient() {
     );
     let nextIndex = -1;
     if (direction > 0) {
-      nextIndex = PLAYBACK_RATE_OPTIONS.findIndex(
+      nextIndex = rateOptions.findIndex(
         (rate) => rate > currentRate + 0.01
       );
     } else {
-      for (let index = PLAYBACK_RATE_OPTIONS.length - 1; index >= 0; index--) {
-        if (PLAYBACK_RATE_OPTIONS[index] < currentRate - 0.01) {
+      for (let index = rateOptions.length - 1; index >= 0; index--) {
+        if (rateOptions[index] < currentRate - 0.01) {
           nextIndex = index;
           break;
         }
@@ -1357,28 +1375,62 @@ function PlayPageClient() {
     const boundedNextIndex = nextIndex === -1 ? currentIndex : nextIndex;
     const effectiveNextIndex = Math.min(
       Math.max(boundedNextIndex, 0),
-      PLAYBACK_RATE_OPTIONS.length - 1
+      rateOptions.length - 1
     );
-    const nextRate = PLAYBACK_RATE_OPTIONS[effectiveNextIndex];
+    const nextRate = rateOptions[effectiveNextIndex];
 
-    artPlayerRef.current.playbackRate = nextRate;
-    artPlayerRef.current.notice.show =
-      effectiveNextIndex === currentIndex
-        ? direction > 0
-          ? `已是最高倍速：${nextRate}x`
-          : `已是最低倍速：${nextRate}x`
-        : `倍速：${nextRate}x`;
+    if (teslaPlayer) {
+      const effectiveRate = teslaPlayer.setPlaybackRate(nextRate);
+      teslaPlaybackRateRef.current = effectiveRate;
+      persistPlaybackRate(effectiveRate);
+      setTeslaPlaybackRate(effectiveRate);
+    } else if (artPlayer) {
+      artPlayer.playbackRate = nextRate;
+      artPlayer.notice.show =
+        effectiveNextIndex === currentIndex
+          ? direction > 0
+            ? `已是最高倍速：${nextRate}x`
+            : `已是最低倍速：${nextRate}x`
+          : `倍速：${nextRate}x`;
+    }
     return true;
   };
 
   const resetPlaybackRate = () => {
-    if (!artPlayerRef.current) {
+    const teslaPlayer = teslaPlayerRef.current;
+    const artPlayer = artPlayerRef.current;
+    if (!teslaPlayer && !artPlayer) {
       return false;
     }
 
-    artPlayerRef.current.playbackRate = 1;
-    artPlayerRef.current.notice.show = '倍速：1x';
+    if (teslaPlayer) {
+      teslaPlaybackRateRef.current = 1;
+      teslaPlayer.setPlaybackRate(1);
+      persistPlaybackRate(1);
+      setTeslaPlaybackRate(1);
+    } else if (artPlayer) {
+      artPlayer.playbackRate = 1;
+      artPlayer.notice.show = '倍速：1x';
+    }
     return true;
+  };
+
+  // Tesla 模式：点击循环切换倍速（车机触摸屏无键盘，需可见按钮）
+  const cycleTeslaPlaybackRate = () => {
+    const current = teslaPlaybackRateRef.current;
+    const currentIndex = TESLA_PLAYBACK_RATE_OPTIONS.indexOf(current);
+    const nextIndex =
+      currentIndex < 0 ||
+      currentIndex >= TESLA_PLAYBACK_RATE_OPTIONS.length - 1
+        ? 0
+        : currentIndex + 1;
+    const nextRate = TESLA_PLAYBACK_RATE_OPTIONS[nextIndex];
+    if (teslaPlayerRef.current) {
+      const effectiveRate = teslaPlayerRef.current.setPlaybackRate(nextRate);
+      teslaPlaybackRateRef.current = effectiveRate;
+      persistPlaybackRate(effectiveRate);
+      setTeslaPlaybackRate(effectiveRate);
+    }
   };
 
   // 用于记录是否需要在播放器 ready 后跳转到指定进度
@@ -1391,6 +1443,12 @@ function PlayPageClient() {
   const lastVolumeRef = useRef<number>(0.7);
   // 上次使用的播放速率，默认 1.0
   const lastPlaybackRateRef = useRef<number>(loadSavedPlaybackRate());
+  // Tesla 车载 WebCodecs 模式的当前倍速（libmedia 引擎无 playbackRate 属性，需自行维护）
+  const teslaPlaybackRateRef = useRef<number>(loadSavedPlaybackRate());
+  // Tesla 模式当前倍速（用于 UI 显示）
+  const [teslaPlaybackRate, setTeslaPlaybackRate] = useState<number>(
+    loadSavedPlaybackRate()
+  );
   // Safari 切集时会短暂把 playbackRate 重置为 1，这里保留一段恢复窗口避免污染记忆值
   const playbackRateRestoreWindowUntilRef = useRef<number>(0);
 
@@ -1643,6 +1701,7 @@ function PlayPageClient() {
 
   const artPlayerRef = useRef<any>(null);
   const artRef = useRef<HTMLDivElement | null>(null);
+  const teslaPlayerRef = useRef<TeslaPlayerHandle | null>(null); // Tesla 车载 WebCodecs 播放实例
   const syncAnime4KCanvasFlip = (flip?: string) => {
     const canvas = anime4kRef.current?.canvas as HTMLCanvasElement | undefined;
     if (!canvas) return;
@@ -3602,6 +3661,16 @@ function PlayPageClient() {
   // 清理播放器资源的统一函数
   const cleanupPlayer = async () => {
     revokeCustomSubtitle();
+
+    // 清理 Tesla 车载 WebCodecs 播放实例
+    if (teslaPlayerRef.current) {
+      try {
+        teslaPlayerRef.current.destroy();
+      } catch {
+        /* ignore */
+      }
+      teslaPlayerRef.current = null;
+    }
 
     // 清除刷新定时器
     clearRefreshTimer();
@@ -5756,6 +5825,145 @@ function PlayPageClient() {
     }
   };
 
+  /**
+   * Tesla 车载 WebCodecs 播放模式：用 libmedia（无 `<video>` 标签）替代 ArtPlayer。
+   * WebCodecs 解码 → Canvas 渲染，绕开 Tesla 车机行驶时暂停 `<video>` 的限制。
+   *
+   * 说明：
+   *   - 换源/选集/切清晰度均通过 setVideoUrl 触发外层 useEffect 重建；
+   *   - 播放记录（saveCurrentPlayProgress）当前硬依赖 artPlayerRef，Tesla 模式暂不接入，
+   *     后续可基于 onTime 回调独立实现。
+   */
+  const initTeslaPlayer = async (url: string) => {
+    // 销毁旧实例并清空容器
+    if (teslaPlayerRef.current) {
+      try {
+        teslaPlayerRef.current.destroy();
+      } catch {
+        /* ignore */
+      }
+      teslaPlayerRef.current = null;
+    }
+    const container = artRef.current;
+    if (container) {
+      container.innerHTML = '';
+    }
+
+    if (!isWebCodecsSupported()) {
+      setIsVideoLoading(false);
+      setVideoError('当前浏览器不支持 WebCodecs，无法使用车载播放模式');
+      return;
+    }
+
+    if (!container) {
+      setIsVideoLoading(false);
+      setVideoError('播放器容器未就绪');
+      return;
+    }
+
+    setIsVideoLoading(true);
+    setVideoError(null);
+
+    // Tesla 模式强制走同源代理：libmedia 通过 fetch 拉流，跨域受限的源会直接失败，
+    // 直链统一改写成 /api/proxy-m3u8 同源地址以规避 CORS。
+    let playUrl = url;
+    if (!isProxiedPlayUrl(playUrl)) {
+      playUrl = buildProxyM3u8Url(
+        playUrl,
+        currentSourceRef.current || 'directplay',
+        false
+      );
+    }
+
+    try {
+      teslaPlayerRef.current = await createTeslaPlayer(container, playUrl, {
+        live: false,
+        onFirstFrame: () => {
+          setIsVideoLoading(false);
+          // 应用上次保存的倍速（libmedia 引擎需显式设置）
+          const savedRate = loadSavedPlaybackRate();
+          const effectiveRate = teslaPlayerRef.current
+            ? teslaPlayerRef.current.setPlaybackRate(savedRate)
+            : savedRate;
+          teslaPlaybackRateRef.current = effectiveRate;
+          setTeslaPlaybackRate(effectiveRate);
+        },
+        onError: (error) => {
+          setIsVideoLoading(false);
+          setVideoError(error.message || '播放失败');
+        },
+        onStatus: (message) => {
+          console.log('[Tesla Player]', message);
+        },
+        onTime: (currentTime, duration) => {
+          // 跳过片头片尾（复用 ArtPlayer 的 skipConfig 逻辑）
+          const skipCfg = skipConfigRef.current;
+          if (!skipCfg.enable) return;
+          const now = Date.now();
+          // 限制跳过检查频率为 1.5 秒一次
+          if (now - lastSkipCheckRef.current < 1500) return;
+          lastSkipCheckRef.current = now;
+
+          // 跳过片头
+          if (skipCfg.intro_time > 0 && currentTime < skipCfg.intro_time) {
+            teslaPlayerRef.current?.seek(skipCfg.intro_time);
+            console.log(
+              `[Tesla Player] 已跳过片头 (${formatTime(skipCfg.intro_time)})`
+            );
+          }
+
+          // 跳过片尾
+          if (
+            skipCfg.outro_time < 0 &&
+            duration > 0 &&
+            currentTime > duration + skipCfg.outro_time
+          ) {
+            if (
+              currentEpisodeIndexRef.current <
+              (detailRef.current?.episodes?.length || 1) - 1
+            ) {
+              void handleNextEpisode();
+            } else {
+              teslaPlayerRef.current?.pause();
+            }
+            console.log(
+              `[Tesla Player] 已跳过片尾 (${formatTime(skipCfg.outro_time)})`
+            );
+          }
+        },
+        onEnded: () => {
+          // 房员禁用自动播放下一集
+          if (playSync.shouldDisableControls) {
+            console.log('[Tesla Player] 房员禁用自动播放下一集');
+            return;
+          }
+          const detail = detailRef.current;
+          const idx = currentEpisodeIndexRef.current;
+          if (!detail || !detail.episodes || idx >= detail.episodes.length - 1) {
+            return;
+          }
+          // 查找下一个未被过滤的集数
+          let nextIdx = idx + 1;
+          while (nextIdx < detail.episodes.length) {
+            const episodeTitle = detail.episodes_titles?.[nextIdx];
+            const isFiltered =
+              episodeTitle && isEpisodeFilteredByTitle(episodeTitle);
+            if (!isFiltered) {
+              setTimeout(() => {
+                setCurrentEpisodeIndex(nextIdx);
+              }, 1000);
+              return;
+            }
+            nextIdx++;
+          }
+        },
+      });
+    } catch (error) {
+      setIsVideoLoading(false);
+      setVideoError((error as Error).message || '播放初始化失败');
+    }
+  };
+
   useEffect(() => {
     // 页面即将卸载时保存播放进度和清理资源
     const handleBeforeUnload = () => {
@@ -5942,6 +6150,13 @@ function PlayPageClient() {
       return;
     }
     console.log(videoUrl);
+
+    // 【Tesla 车载 WebCodecs 模式】用 libmedia（无 <video> 标签）替代 ArtPlayer，
+    // 实现 Tesla 车机行驶过程中视频不中断。
+    if (isTeslaWebCodecsModeEnabled()) {
+      void initTeslaPlayer(videoUrl);
+      return;
+    }
 
     // 检测是否为WebKit浏览器
     const isWebkit =
@@ -8622,6 +8837,18 @@ function PlayPageClient() {
                   ref={artRef}
                   className='bg-black w-full h-full rounded-xl overflow-hidden shadow-lg'
                 ></div>
+
+                {/* Tesla 车载模式倍速控件 */}
+                {isTeslaWebCodecsModeEnabled() && (
+                  <div className='absolute top-3 right-3 z-[400] flex items-center gap-2'>
+                    <button
+                      onClick={cycleTeslaPlaybackRate}
+                      className='px-4 py-2 bg-black/60 hover:bg-black/80 backdrop-blur-sm text-white text-sm font-medium rounded-lg border border-white/20 transition-colors duration-200'
+                    >
+                      倍速 {teslaPlaybackRate}x
+                    </button>
+                  </div>
+                )}
 
                 {/* 换源加载蒙层 */}
                 {(isVideoLoading || videoError) && (
