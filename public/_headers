@@ -1,0 +1,33 @@
+# Cloudflare Workers Assets 缓存规则
+# 参考: https://developers.cloudflare.com/workers/static-assets/headers/
+# 带内容哈希的构建产物使用 immutable；其余静态资源使用长 max-age。
+
+/_next/static/*
+  Cache-Control: public, max-age=31536000, immutable
+
+/icons/*
+  Cache-Control: public, max-age=604800, immutable
+
+/players/*
+  Cache-Control: public, max-age=604800, immutable
+
+/assets/*
+  Cache-Control: public, max-age=2592000, immutable
+
+/wasm/*
+  Cache-Control: public, max-age=2592000, immutable
+
+/tvbox/*
+  Cache-Control: public, max-age=604800
+
+/logo.png
+  Cache-Control: public, max-age=604800
+
+/favicon.ico
+  Cache-Control: public, max-age=86400
+
+/manifest.json
+  Cache-Control: public, max-age=3600
+
+/robots.txt
+  Cache-Control: public, max-age=3600

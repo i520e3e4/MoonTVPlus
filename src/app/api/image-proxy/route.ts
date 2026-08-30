@@ -88,6 +88,33 @@ async function fetchImage(
   return nodeFetch(targetUrl, fetchOptions) as unknown as Promise<Response>;
 }
 
+// 允许被代理的图片源域名后缀。
+// 该接口已在 middleware 中豁免鉴权以便被 Cloudflare 边缘缓存，
+// 因此必须做白名单校验，避免被当作开放图片代理滥用。
+const ALLOWED_IMAGE_HOST_SUFFIXES = [
+  'doubanio.com',
+  'bgm.tv',
+  'bangumi.tv',
+  'bangumi.lol',
+  'tmdb.org',
+  'themoviedb.org',
+  'douban.com',
+];
+
+function isAllowedImageHost(rawUrl: string): boolean {
+  try {
+    const hostname = new URL(rawUrl).hostname.toLowerCase();
+    if (hostname === 'localhost' || hostname === '127.0.0.1') return false;
+    // 拒绝内网/裸 IP，避免 SSRF
+    if (/^\d+\.\d+\.\d+\.\d+$/.test(hostname)) return false;
+    return ALLOWED_IMAGE_HOST_SUFFIXES.some(
+      (suffix) => hostname === suffix || hostname.endsWith(`.${suffix}`)
+    );
+  } catch {
+    return false;
+  }
+}
+
 // OrionTV 兼容接口
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
@@ -96,6 +123,13 @@ export async function GET(request: Request) {
 
   if (!imageUrl) {
     return NextResponse.json({ error: 'Missing image URL' }, { status: 400 });
+  }
+
+  if (!isAllowedImageHost(imageUrl)) {
+    return NextResponse.json(
+      { error: 'Image host not allowed' },
+      { status: 403 }
+    );
   }
 
   try {

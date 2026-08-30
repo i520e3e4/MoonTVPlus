@@ -67,10 +67,33 @@ async function getUserFeatureAccessMap(username: string): Promise<FeatureAccessM
   }, {} as FeatureAccessMap);
 }
 
+// 页面渲染路径（root layout）专用缓存。
+// 每个页面请求都会调用本函数，未缓存时每次都要打一次 D1。
+// 权限校验路径（hasFeaturePermission）仍走无缓存的 getUserFeatureAccessMap，
+// 以保证管理后台修改权限后立即生效。
+const FEATURE_ACCESS_CACHE_TTL_MS = 60_000;
+const FEATURE_ACCESS_CACHE_MAX_ENTRIES = 256;
+const featureAccessCache = new Map<
+  string,
+  { data: FeatureAccessMap; ts: number }
+>();
+
 export async function getUserFeatureAccess(username?: string | null): Promise<FeatureAccessMap> {
   if (!username) return createEmptyFeatureAccessMap();
+
+  const now = Date.now();
+  const cached = featureAccessCache.get(username);
+  if (cached && now - cached.ts < FEATURE_ACCESS_CACHE_TTL_MS) {
+    return cached.data;
+  }
+
   try {
-    return await getUserFeatureAccessMap(username);
+    const data = await getUserFeatureAccessMap(username);
+    if (featureAccessCache.size >= FEATURE_ACCESS_CACHE_MAX_ENTRIES) {
+      featureAccessCache.clear();
+    }
+    featureAccessCache.set(username, { data, ts: now });
+    return data;
   } catch (error) {
     console.error('[Permissions] Failed to load feature access:', error);
     return username === process.env.USERNAME

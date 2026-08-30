@@ -625,8 +625,10 @@ export function processVideoUrl(originalUrl: string): string {
       return originalUrl;
 
     case 'server':
-      // 使用服务器代理
-      return `/api/video-proxy?url=${encodeURIComponent(originalUrl)}`;
+      // 使用服务器图片代理。
+      // 改用 /api/image-proxy：它会带上正确的 Referer 绕过图床防盗链，
+      // 且已在 middleware 中豁免鉴权，响应可被 Cloudflare 边缘缓存。
+      return `/api/image-proxy?url=${encodeURIComponent(originalUrl)}`;
 
     case 'img3':
       // 使用 img3.doubanio.com 代理

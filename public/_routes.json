@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "include": ["/*"],
+  "exclude": [
+    "/_next/static/*",
+    "/icons/*",
+    "/players/*",
+    "/assets/*",
+    "/wasm/*",
+    "/tvbox/*",
+    "/favicon.ico",
+    "/logo.png"
+  ]
+}

@@ -23,7 +23,9 @@ const createNextConfig = (phase) => {
   const isDevelopment = phase === PHASE_DEVELOPMENT_SERVER || process.env.NODE_ENV === 'development';
 
   const nextConfig = {
-  // Cloudflare Pages 不支持 standalone，使用默认输出
+  // Cloudflare 构建走 OpenNext：其 buildNextApp 会通过 NEXT_PRIVATE_STANDALONE=true
+  // 强制 standalone 模式，与本字段无关。此处保持 edge 构建不设 output，
+  // 非 edge 构建（本地 / Docker）输出 standalone。
   output: isEdgeBuild ? undefined : 'standalone',
   eslint: {
     dirs: ['src'],

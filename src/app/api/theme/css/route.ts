@@ -34,11 +34,14 @@ export async function GET(request: NextRequest) {
       css = themeConfig.customCSS || '';
     }
 
-    // 设置缓存控制
+    // 设置缓存控制。
+    // 默认开启缓存：该接口原先在主题缓存开关未显式开启时返回 no-store，
+    // 导致每次页面加载都要重新回源，是可避免的首屏开销。
     const cacheMinutes = themeConfig.cacheMinutes || 1440; // 默认1天（1440分钟）
     const maxAge = cacheMinutes * 60; // 转换为秒
     const staleWhileRevalidate = maxAge * 7; // 过期后7倍时间内可使用旧版本
-    const cacheControl = themeConfig.enableCache
+    const cacheEnabled = themeConfig.enableCache !== false;
+    const cacheControl = cacheEnabled
       ? `public, max-age=${maxAge}, stale-while-revalidate=${staleWhileRevalidate}`
       : 'no-store';
 
@@ -47,7 +50,7 @@ export async function GET(request: NextRequest) {
 
     // 检查客户端缓存
     const ifNoneMatch = request.headers.get('if-none-match');
-    if (ifNoneMatch === etag && themeConfig.enableCache) {
+    if (ifNoneMatch === etag && cacheEnabled) {
       return new NextResponse(null, {
         status: 304,
         headers: {

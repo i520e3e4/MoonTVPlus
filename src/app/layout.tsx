@@ -10,6 +10,7 @@ import { parseAuthInfo } from '@/lib/auth';
 import { getConfig } from '@/lib/config';
 import { getUserFeatureAccess } from '@/lib/permissions';
 import { listEnabledSourceScripts } from '@/lib/source-script';
+import { getThemeCSS } from '@/styles/themes';
 
 import { DeferredGlobalOverlays } from '../components/DeferredGlobalOverlays';
 import { GlobalErrorIndicator } from '../components/GlobalErrorIndicator';
@@ -21,6 +22,12 @@ import { WatchRoomProvider } from '../components/WatchRoomProvider';
 import { DownloadProvider } from '../contexts/DownloadContext';
 
 const inter = Inter({ subsets: ['latin'] });
+// 必须保留 force-dynamic。
+// layout 与 generateMetadata 都会在渲染期读取 D1（getConfig 等），
+// 而 Cloudflare 构建阶段没有 D1 绑定（db 为 null）。若移除本声明，
+// next build 会尝试静态预渲染全部页面并因 db 为 null 而整体导出失败。
+// 曾尝试移除，构建报 "Cannot read properties of null (reading 'getGlobalValue')"，
+// 277 个页面全部 export 失败，故恢复。
 export const dynamic = 'force-dynamic';
 
 // 动态生成 metadata，支持配置更新后的标题变化
@@ -134,6 +141,8 @@ export default async function RootLayout({
     type: 'movie' | 'tv';
     query: string;
   }[];
+  // 主题 CSS 在服务端内联输出，避免 head 中的同步样式表请求阻塞首屏渲染。
+  let themeCss = '';
   if (storageType === 'localstorage') {
     userFeatureAccess = await getUserFeatureAccess(
       process.env.USERNAME || 'localstorage-owner'
@@ -147,6 +156,12 @@ export default async function RootLayout({
       listEnabledSourceScripts(),
     ]);
     userFeatureAccess = featureAccess;
+    const themeConfig = config.ThemeConfig;
+    if (themeConfig) {
+      themeCss = themeConfig.enableBuiltInTheme
+        ? getThemeCSS(themeConfig.builtInTheme as any)
+        : themeConfig.customCSS || '';
+    }
     siteName = config.SiteConfig.SiteName;
     announcement = config.SiteConfig.Announcement;
     announcementDisplayMode =
@@ -348,8 +363,13 @@ export default async function RootLayout({
           content='width=device-width, initial-scale=1.0, viewport-fit=cover'
         />
         <link rel='apple-touch-icon' href='/icons/icon-192x192.png' />
-        {/* 主题CSS */}
-        <link rel='stylesheet' href='/api/theme/css' />
+        {/* 主题CSS：服务端内联，消除一次阻塞渲染的同步请求 */}
+        {themeCss ? (
+          <style
+            id='theme-css'
+            dangerouslySetInnerHTML={{ __html: themeCss }}
+          />
+        ) : null}
         {/* 将配置序列化后直接写入脚本，浏览器端可通过 window.RUNTIME_CONFIG 获取 */}
         {/* eslint-disable-next-line @next/next/no-sync-scripts */}
         <script
