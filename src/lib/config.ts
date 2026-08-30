@@ -280,8 +280,7 @@ async function getInitConfig(
         process.env.NEXT_PUBLIC_DOUBAN_PROXY_TYPE || 'cmliussss-cdn-tencent',
       DoubanProxy: process.env.NEXT_PUBLIC_DOUBAN_PROXY || '',
       DoubanImageProxyType:
-        process.env.NEXT_PUBLIC_DOUBAN_IMAGE_PROXY_TYPE ||
-        'cmliussss-cdn-tencent',
+        process.env.NEXT_PUBLIC_DOUBAN_IMAGE_PROXY_TYPE || 'server',
       DoubanImageProxy: process.env.NEXT_PUBLIC_DOUBAN_IMAGE_PROXY || '',
       DisableYellowFilter:
         process.env.NEXT_PUBLIC_DISABLE_YELLOW_FILTER === 'true',
@@ -517,7 +516,7 @@ export function configSelfCheck(adminConfig: AdminConfig): AdminConfig {
       SiteInterfaceCacheTime: 7200,
       DoubanProxyType: 'cmliussss-cdn-tencent',
       DoubanProxy: '',
-      DoubanImageProxyType: 'cmliussss-cdn-tencent',
+      DoubanImageProxyType: 'server',
       DoubanImageProxy: '',
       DisableYellowFilter: false,
       FluidSearch: true,

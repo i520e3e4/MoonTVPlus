@@ -22,6 +22,8 @@ export async function GET() {
     return NextResponse.json(data, {
       headers: {
         'Cache-Control': 'public, max-age=3600, stale-while-revalidate=21600',
+        // 显式告知 Cloudflare 边缘缓存（配合 middleware 免鉴权生效）
+        'CDN-Cache-Control': 'public, s-maxage=3600, stale-while-revalidate=21600',
       },
     });
   } catch (error) {

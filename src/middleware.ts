@@ -191,6 +191,10 @@ export const config = {
   matcher: [
     // api/image-proxy 豁免鉴权：海报图片需要被 Cloudflare 边缘缓存，
     // 走鉴权会导致每个图片请求都回源。安全性由接口内的域名白名单保证。
-    '/((?!_next/static|_next/image|favicon.ico|login|register|oidc-register|qr-login|warning|tv/login|api/login|api/register|api/logout|api/auth/oidc|api/auth/qr|api/auth/refresh|api/telegram/login|api/telegram/config|api/telegram/webhook|api/cron/|api/server-config|api/proxy-m3u8|api/proxy/vod|api/cms-proxy|api/tvbox/subscribe|api/theme/css|api/image-proxy|api/openlist/cms-proxy|api/openlist/play|api/emby/cms-proxy|api/emby/play|api/emby/subtitle|api/emby/sources|tvbox/).*)',
+    // api/douban/categories、api/bangumi/calendar、api/duanju/recommends、
+    // api/tmdb/upcoming 为首页使用的纯公共只读数据接口，豁免鉴权后
+    // 其响应（均带 Cache-Control: public + s-maxage）可被 Cloudflare 边缘缓存，
+    // 显著降低首页数据加载延迟与上游（豆瓣/bgm.tv）回源压力。
+    '/((?!_next/static|_next/image|favicon.ico|login|register|oidc-register|qr-login|warning|tv/login|api/login|api/register|api/logout|api/auth/oidc|api/auth/qr|api/auth/refresh|api/telegram/login|api/telegram/config|api/telegram/webhook|api/cron/|api/server-config|api/proxy-m3u8|api/proxy/vod|api/cms-proxy|api/tvbox/subscribe|api/theme/css|api/image-proxy|api/douban/categories|api/bangumi/calendar|api/duanju/recommends|api/tmdb/upcoming|api/openlist/cms-proxy|api/openlist/play|api/emby/cms-proxy|api/emby/play|api/emby/subtitle|api/emby/sources|tvbox/).*)',
   ],
 };

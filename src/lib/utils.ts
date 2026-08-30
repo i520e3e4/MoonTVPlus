@@ -76,7 +76,7 @@ function getDoubanImageProxyConfig(): {
   // 确保在浏览器环境中执行
   if (typeof window === 'undefined') {
     return {
-      proxyType: 'cmliussss-cdn-tencent',
+      proxyType: 'server',
       proxyUrl: '',
       backupProxyType: 'server',
       backupProxyUrl: '',
@@ -86,7 +86,7 @@ function getDoubanImageProxyConfig(): {
   const doubanImageProxyType =
     localStorage.getItem('doubanImageProxyType') ||
     (window as any).RUNTIME_CONFIG?.DOUBAN_IMAGE_PROXY_TYPE ||
-    'cmliussss-cdn-tencent';
+    'server';
   const doubanImageProxy =
     localStorage.getItem('doubanImageProxyUrl') ||
     (window as any).RUNTIME_CONFIG?.DOUBAN_IMAGE_PROXY ||
