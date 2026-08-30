@@ -507,47 +507,47 @@ function HomeClient() {
             setCache('homepage_bangumi', bangumiCalendarData);
           }
 
-          try {
-            const duanjuResponse = await fetch('/api/duanju/recommends');
-            if (duanjuResponse.ok) {
-              const duanjuResult = await duanjuResponse.json();
-              if (
-                duanjuResult.code === 200 &&
-                duanjuResult.data &&
-                duanjuResult.data.length > 0
-              ) {
-                setHotDuanju(duanjuResult.data);
-                setCache('homepage_duanju', duanjuResult.data);
-              }
-            }
-          } catch (error) {
-            console.error('获取热播短剧数据失败:', error);
+          // 热播短剧与即将上映原为串行请求，改为并行以缩短首页数据加载总耗时
+          const [duanjuResult, upcomingResult] = await Promise.all([
+            fetch('/api/duanju/recommends')
+              .then((r) => (r.ok ? r.json() : null))
+              .catch((error) => {
+                console.error('获取热播短剧数据失败:', error);
+                return null;
+              }),
+            fetch('/api/tmdb/upcoming')
+              .then((r) => (r.ok ? r.json() : null))
+              .catch((error) => {
+                console.error('获取TMDB即将上映数据失败:', error);
+                return null;
+              }),
+          ]);
+
+          if (
+            duanjuResult?.code === 200 &&
+            duanjuResult?.data &&
+            duanjuResult.data.length > 0
+          ) {
+            setHotDuanju(duanjuResult.data);
+            setCache('homepage_duanju', duanjuResult.data);
           }
 
-          try {
-            const response = await fetch('/api/tmdb/upcoming');
-            if (response.ok) {
-              const result = await response.json();
-              if (
-                result.code === 200 &&
-                result.data &&
-                result.data.length > 0
-              ) {
-                const sorted = [...result.data].sort((a, b) => {
-                  const dateA = new Date(
-                    a.release_date || '9999-12-31'
-                  ).getTime();
-                  const dateB = new Date(
-                    b.release_date || '9999-12-31'
-                  ).getTime();
-                  return dateA - dateB;
-                });
-                setUpcomingContent(sorted);
-                setCache('homepage_upcoming', sorted);
-              }
-            }
-          } catch (error) {
-            console.error('获取TMDB即将上映数据失败:', error);
+          if (
+            upcomingResult?.code === 200 &&
+            upcomingResult?.data &&
+            upcomingResult.data.length > 0
+          ) {
+            const sorted = [...upcomingResult.data].sort((a, b) => {
+              const dateA = new Date(
+                a.release_date || '9999-12-31'
+              ).getTime();
+              const dateB = new Date(
+                b.release_date || '9999-12-31'
+              ).getTime();
+              return dateA - dateB;
+            });
+            setUpcomingContent(sorted);
+            setCache('homepage_upcoming', sorted);
           }
 
           setLoading(false);
