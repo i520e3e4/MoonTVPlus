@@ -24,6 +24,11 @@ const DECODE_PRESET_SOFTWARE = 'software';
 const FIRST_VIDEO_FRAME_TIMEOUT_MS = 15_000;
 const FIRST_AUDIO_FRAME_TIMEOUT_MS = 22_000;
 const MAX_DECODE_FALLBACK_LEVEL = 2; // hardware -> software -> 重建 (重新请求源 URL)
+// ---- ended 事件可信度判定 ----
+// libmedia 在网络断流、实例销毁 teardown、seek 越界时都可能误发 ended。
+// 只有播放进度真正逼近片尾时才向页面转发, 否则视为可疑信号并尝试续播。
+const REAL_END_EPSILON_SECONDS = 10; // 距片尾不足该秒数视为真实结束
+const MIN_PLAYED_SECONDS_FOR_END = 20; // duration 未知时至少播放该秒数
 const MICROSECONDS_PER_SECOND = 1_000_000;
 const MIN_PLAYBACK_RATE = 0.5;
 const MAX_PLAYBACK_RATE = 2;
@@ -204,6 +209,11 @@ export async function createTeslaPlayer(
   let videoFallbackTimer: ReturnType<typeof setTimeout> | null = null;
   let audioFallbackTimer: ReturnType<typeof setTimeout> | null = null;
   let fallbackLevel = 0;
+  // ended 可信度判定使用的最近一次时间上报（秒）
+  let lastTimeSeconds = 0;
+  let lastDurationSeconds = 0;
+  // 同一实例上只转发一次 ended, 防止重复触发上层自动切集
+  let endedForwarded = false;
   // The player can be rebuilt while falling back from hardware to software
   // decoding. Keep the requested rate outside the player instance so it is
   // restored on the replacement instance as well.
@@ -292,6 +302,10 @@ export async function createTeslaPlayer(
   const start = async (fallback: boolean) => {
     if (destroyed || opts.isCancelled?.()) return;
     if (fallback) decodePresetId = DECODE_PRESET_SOFTWARE;
+    // 重建实例后重置 ended 转发标记, 旧实例的时间快照一并作废
+    endedForwarded = false;
+    lastTimeSeconds = 0;
+    lastDurationSeconds = 0;
 
     // 重建前先销毁旧实例（切换硬/软解或重试）
     if (player) {
@@ -318,23 +332,22 @@ export async function createTeslaPlayer(
     };
 
     player.on('time', () => {
+      // 无论是否已出首帧都持续记录时间快照, 供 ended 可信度判定使用
+      try {
+        lastTimeSeconds = toSeconds(player.currentTime);
+      } catch {
+        /* ignore */
+      }
+      try {
+        lastDurationSeconds = toSeconds(player.duration);
+      } catch {
+        /* ignore */
+      }
       // 首帧未出来前不向外抛时间, 避免上层误判"已开始播放"
       if (firstVideoOk) {
         restorePlaybackRate();
         if (typeof opts.onTime === 'function') {
-          let currentTimeSeconds = 0;
-          let durationSeconds = 0;
-          try {
-            currentTimeSeconds = toSeconds(player.currentTime);
-          } catch {
-            /* ignore */
-          }
-          try {
-            durationSeconds = toSeconds(player.duration);
-          } catch {
-            /* ignore */
-          }
-          opts.onTime(currentTimeSeconds, durationSeconds);
+          opts.onTime(lastTimeSeconds, lastDurationSeconds);
         }
       }
     });
@@ -347,6 +360,36 @@ export async function createTeslaPlayer(
       markAudioFirstFrame();
     });
     player.on('ended', () => {
+      // 守卫 1: 已销毁 / 非当前活跃实例（硬解回退重建时旧实例的 teardown
+      // 事件不应触发上层自动切集）
+      if (destroyed || player !== activePlayer) return;
+      // 守卫 2: 同一实例只转发一次
+      if (endedForwarded) return;
+      // 守卫 3: 进度必须真正逼近片尾。libmedia 在断流/错误路径上会误发
+      // ended（此时 currentTime 远小于 duration 或尚未渲染任何视频帧）,
+      // 若直接透传, 页面会立刻跳到下一集 —— 即"第一集没播完跳第二集"。
+      const nearEnd =
+        lastDurationSeconds > 0
+          ? lastTimeSeconds >=
+            lastDurationSeconds - REAL_END_EPSILON_SECONDS
+          : lastTimeSeconds >= MIN_PLAYED_SECONDS_FOR_END;
+      if (!firstVideoOk || !nearEnd) {
+        console.warn(
+          '[Tesla Player] 忽略可疑的 ended 信号（进度未到片尾），尝试续播',
+          {
+            currentTime: lastTimeSeconds,
+            duration: lastDurationSeconds,
+            firstVideoOk,
+          }
+        );
+        try {
+          if (typeof player.play === 'function') player.play();
+        } catch {
+          /* ignore */
+        }
+        return;
+      }
+      endedForwarded = true;
       opts.onEnded?.();
     });
 

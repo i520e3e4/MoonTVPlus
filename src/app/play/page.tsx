@@ -1734,6 +1734,14 @@ function PlayPageClient() {
   // 换集/换源时 createTeslaPlayer 会异步加载静态模块。序号用于丢弃已经过期的初始化结果，
   // 防止旧实例在新视频开始后重新写入容器。
   const teslaPlayerInitSequenceRef = useRef(0);
+  // Tesla 模式 ended 二次校验：最近一次 onTime 上报的时间快照（秒）
+  const teslaLastTimeRef = useRef(0);
+  const teslaLastDurationRef = useRef(0);
+  // Tesla 模式自动切集的延迟 timer（ended 后 1s 才切集），必须可取消,
+  // 否则用户在 1s 内手动换集/换源时, 过期 timer 仍会强制跳集。
+  const teslaAutoAdvanceTimerRef = useRef<ReturnType<
+    typeof setTimeout
+  > | null>(null);
   const syncAnime4KCanvasFlip = (flip?: string) => {
     const canvas = anime4kRef.current?.canvas as HTMLCanvasElement | undefined;
     if (!canvas) return;
@@ -3696,6 +3704,10 @@ function PlayPageClient() {
 
     // 清理 Tesla 车载 WebCodecs 播放实例
     teslaPlayerInitSequenceRef.current += 1;
+    if (teslaAutoAdvanceTimerRef.current) {
+      clearTimeout(teslaAutoAdvanceTimerRef.current);
+      teslaAutoAdvanceTimerRef.current = null;
+    }
     if (teslaPlayerRef.current) {
       try {
         teslaPlayerRef.current.destroy();
@@ -5876,6 +5888,14 @@ function PlayPageClient() {
     const isCurrentInitialization = () =>
       teslaPlayerInitSequenceRef.current === initSequence;
 
+    // 新一次初始化: 作废时间快照, 取消尚未触发的自动切集 timer
+    teslaLastTimeRef.current = 0;
+    teslaLastDurationRef.current = 0;
+    if (teslaAutoAdvanceTimerRef.current) {
+      clearTimeout(teslaAutoAdvanceTimerRef.current);
+      teslaAutoAdvanceTimerRef.current = null;
+    }
+
     // 销毁旧实例并清空容器
     if (teslaPlayerRef.current) {
       try {
@@ -5953,6 +5973,9 @@ function PlayPageClient() {
         },
         onTime: (currentTime, duration) => {
           if (!isCurrentInitialization()) return;
+          // 记录时间快照, 供 onEnded 二次校验
+          teslaLastTimeRef.current = currentTime;
+          teslaLastDurationRef.current = duration;
           const now = Date.now();
           const saveInterval =
             process.env.NEXT_PUBLIC_STORAGE_TYPE === 'upstash'
@@ -5978,10 +6001,15 @@ function PlayPageClient() {
           }
 
           // 跳过片尾
+          // 注意: 弱网下 libmedia 可能先上报一个极小的假 duration（比如
+          // 单个分片的时长）, 若不加校验, `currentTime > duration + outro_time`
+          // 在开播几十秒后即成立 → "第一集没播完就跳第二集"。
+          // 因此要求 duration 达到正片量级, 且播放进度确实过半。
           if (
             skipCfg.outro_time < 0 &&
-            duration > 0 &&
-            currentTime > duration + skipCfg.outro_time
+            duration > 300 &&
+            currentTime > duration + skipCfg.outro_time &&
+            currentTime > duration * 0.5
           ) {
             if (
               currentEpisodeIndexRef.current <
@@ -6008,6 +6036,21 @@ function PlayPageClient() {
           if (!detail || !detail.episodes || idx >= detail.episodes.length - 1) {
             return;
           }
+          // 二次校验（第一道在 tesla-player.ts 内）: 引擎误报 ended 时
+          // 进度不会在片尾附近, 此处直接拒绝自动切集, 避免第一集中途跳第二集。
+          const lastTime = teslaLastTimeRef.current;
+          const lastDuration = teslaLastDurationRef.current;
+          const looksFinished =
+            lastDuration > 0
+              ? lastTime >= lastDuration - 15
+              : lastTime >= 30;
+          if (!looksFinished) {
+            console.warn(
+              '[Tesla Player] ended 事件未通过进度校验, 已忽略自动切集',
+              { lastTime, lastDuration }
+            );
+            return;
+          }
           // 查找下一个未被过滤的集数
           let nextIdx = idx + 1;
           while (nextIdx < detail.episodes.length) {
@@ -6015,7 +6058,14 @@ function PlayPageClient() {
             const isFiltered =
               episodeTitle && isEpisodeFilteredByTitle(episodeTitle);
             if (!isFiltered) {
-              setTimeout(() => {
+              if (teslaAutoAdvanceTimerRef.current) {
+                clearTimeout(teslaAutoAdvanceTimerRef.current);
+              }
+              teslaAutoAdvanceTimerRef.current = setTimeout(() => {
+                teslaAutoAdvanceTimerRef.current = null;
+                // 1s 窗口内若发生了新的初始化（用户手动换集/换源）,
+                // 过期 timer 不得再强制切集
+                if (!isCurrentInitialization()) return;
                 setCurrentEpisodeIndex(nextIdx);
               }, 1000);
               return;
