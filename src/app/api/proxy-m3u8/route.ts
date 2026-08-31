@@ -12,6 +12,68 @@ export const runtime = 'nodejs';
 export const maxDuration = 60; // 设置最大执行时间为 60 秒
 
 /**
+ * 通用 fetch wrapper:
+ *  - 上游 5xx / 408 / 429 / 网络抖动时最多再重试 1 次 (间隔 200ms 退避)
+ *  - 单次请求 12s 超时, 防止 Cloudflare Worker 单请求 30s CPU 配额被吃光
+ *  - 透传 Range 等请求头, 减少回源字节数
+ */
+async function fetchUpstreamWithRetry(
+  url: string,
+  init: RequestInit & { timeoutMs?: number; label?: string } = {}
+): Promise<Response> {
+  const { timeoutMs = 12_000, label = 'upstream', ...rest } = init;
+  const maxAttempts = 2;
+  let lastError: unknown = null;
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      const response = await fetch(url, {
+        ...rest,
+        signal: controller.signal,
+      });
+      clearTimeout(timer);
+
+      if (
+        response.ok ||
+        (response.status >= 400 && response.status < 500 && response.status !== 408 && response.status !== 429)
+      ) {
+        // 4xx (除 408/429) 是客户端错误, 重试无意义; 2xx/3xx 直接返回
+        return response;
+      }
+
+      // 5xx / 408 / 429 尝试退避重试
+      lastError = new Error(`${label} HTTP ${response.status}`);
+      console.warn(
+        `[Proxy-M3U8] ${label} 返回 ${response.status}, 第 ${attempt}/${maxAttempts} 次, 准备${attempt < maxAttempts ? '重试' : '放弃'}`
+      );
+      // 主动释放 body 避免连接泄漏
+      try {
+        await response.text();
+      } catch {
+        /* ignore */
+      }
+    } catch (error) {
+      clearTimeout(timer);
+      lastError = error;
+      console.warn(
+        `[Proxy-M3U8] ${label} 第 ${attempt}/${maxAttempts} 次异常:`,
+        (error as Error)?.message
+      );
+    }
+
+    if (attempt < maxAttempts) {
+      await new Promise((r) => setTimeout(r, 250 * attempt));
+    }
+  }
+
+  throw lastError instanceof Error
+    ? lastError
+    : new Error(`${label} unreachable`);
+}
+
+/**
  * M3U8 代理接口
  * 用于外部播放器访问,会执行去广告逻辑并处理相对链接
  * GET /api/proxy-m3u8?url=<原始m3u8地址>&source=<播放源>&token=<鉴权token>
@@ -100,7 +162,8 @@ export async function GET(request: NextRequest) {
 
     // 获取原始 m3u8 内容
     const m3u8UrlObj = new URL(m3u8Url);
-    const response = await fetch(m3u8Url, {
+    const response = await fetchUpstreamWithRetry(m3u8Url, {
+      label: `manifest:${m3u8UrlObj.host}`,
       headers: {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
         'Accept': '*/*',

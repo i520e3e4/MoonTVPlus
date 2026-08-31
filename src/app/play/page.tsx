@@ -5905,6 +5905,9 @@ function PlayPageClient() {
     setIsVideoLoading(true);
     setVideoError(null);
 
+    // 记录原始播放地址（用于错误时还原 UI 上的「使用代理播放」按钮）
+    const originalPlayUrl = url;
+
     // Tesla 模式强制走同源代理：libmedia 通过 fetch 拉流，跨域受限的源会直接失败，
     // 清单、分片和密钥均通过同源代理：libmedia 在 Worker 内 fetch，任一远程分片
     // 缺少 CORS 响应头都会导致播放中断。
@@ -5936,6 +5939,13 @@ function PlayPageClient() {
           if (!isCurrentInitialization()) return;
           setIsVideoLoading(false);
           setVideoError(error.message || '播放失败');
+          // 让 UI 上的「使用代理播放」按钮可见：原始地址写入 corsFailedUrl,
+          // 让用户可一键从 Tesla 模式的强制代理退回 (或继续强制) 任意代理形式.
+          if (originalPlayUrl && !isProxiedPlayUrl(originalPlayUrl)) {
+            setCorsFailedUrl(originalPlayUrl);
+          }
+          // 释放 HLS 错误记忆, 让 UI 在 Tesla 模式错误后仍允许重试一次
+          proxyAttemptedRef.current = false;
         },
         onStatus: (message) => {
           if (!isCurrentInitialization()) return;
@@ -8986,11 +8996,34 @@ function PlayPageClient() {
                                     }
                                     setVideoUrl(proxyUrl);
                                   }}
-                                  className='mt-4 ml-3 px-6 py-2 bg-gradient-to-r from-blue-500 to-indigo-600 text-white rounded-lg hover:from-blue-600 hover:to-indigo-700 transition-all duration-200'
+                                  className='mt-4 ml-3 px-6 py-2 bg-gradient-to-r from-blue-500 to-indigo-600 text-white rounded-lg hover:from-blue-500 hover:to-indigo-700 transition-all duration-200'
                                 >
                                   使用代理播放
                                 </button>
                               )}
+                            {/* Tesla 模式下仍在错误态时, 让用户一键切回标准模式兜底 */}
+                            {videoError && isTeslaWebCodecsModeEnabled() && (
+                              <button
+                                onClick={() => {
+                                  // 切到 standard 模式 + 重新加载当前 URL, 让 ArtPlayer/HLS 接管
+                                  // Tesla/standard 引擎差异较大, 直接刷新最稳
+                                  setTeslaPlaybackMode('standard');
+                                  try {
+                                    window.location.reload();
+                                  } catch {
+                                    setVideoError(null);
+                                    setCorsFailedUrl(null);
+                                    proxyAttemptedRef.current = false;
+                                    segmentProxyAttemptedRef.current = false;
+                                    setIsVideoLoading(true);
+                                    setVideoUrl(videoUrl || '');
+                                  }
+                                }}
+                                className='mt-4 ml-3 px-6 py-2 bg-gradient-to-r from-amber-500 to-orange-600 text-white rounded-lg hover:from-amber-600 hover:to-orange-700 transition-all duration-200'
+                              >
+                                切到标准模式重试
+                              </button>
+                            )}
                           </div>
                         </>
                       ) : (

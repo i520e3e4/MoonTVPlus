@@ -20,10 +20,57 @@ const GUARD_URL: string = '/assets/guard-e6d89b7c.js';
 
 const DECODE_PRESET_HARDWARE = 'hardware';
 const DECODE_PRESET_SOFTWARE = 'software';
-const FIRST_FRAME_TIMEOUT_MS = 15000;
+// 车机弱网下硬解 15s 不出帧属正常, 软解再保留 10s
+const FIRST_VIDEO_FRAME_TIMEOUT_MS = 15_000;
+const FIRST_AUDIO_FRAME_TIMEOUT_MS = 22_000;
+const MAX_DECODE_FALLBACK_LEVEL = 2; // hardware -> software -> 重建 (重新请求源 URL)
 const MICROSECONDS_PER_SECOND = 1_000_000;
 const MIN_PLAYBACK_RATE = 0.5;
 const MAX_PLAYBACK_RATE = 2;
+
+/**
+ * 播放源预热：在真正创建 Player 之前先 HEAD/小段请求一次 manifest。
+ * - 成功：返回原始 URL，立即交给 Player。
+ * - 失败（超时/5xx）：直接抛错, 让前端 UI 触发 "使用代理播放" 按钮。
+ *
+ * 车机弱网场景下, 如果上游 m3u8 已经 5xx 或 DNS 失败, 不必等 libmedia
+ * 内部 15s 超时才能给出错误, 用户能更快看到重试入口。
+ */
+async function probeSourceReachable(
+  url: string,
+  signal?: AbortSignal
+): Promise<void> {
+  const controller = new AbortController();
+  const onAbort = () => controller.abort();
+  if (signal) {
+    if (signal.aborted) controller.abort();
+    else signal.addEventListener('abort', onAbort, { once: true });
+  }
+  const timer = setTimeout(() => controller.abort(), 8_000);
+  try {
+    const response = await fetch(url, {
+      method: 'GET',
+      signal: controller.signal,
+      headers: {
+        Range: 'bytes=0-2047',
+        'User-Agent':
+          'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+      },
+    });
+    if (!response.ok && response.status !== 206) {
+      throw new Error(`probe HTTP ${response.status}`);
+    }
+    // 不消费 body, 让 libmedia 重新拉完整流
+    try {
+      await response.body?.cancel();
+    } catch {
+      /* ignore */
+    }
+  } finally {
+    clearTimeout(timer);
+    if (signal) signal.removeEventListener('abort', onAbort);
+  }
+}
 
 export interface TeslaPlayerCallbacks {
   /** 首帧（视频或音频）渲染成功 */
@@ -122,11 +169,41 @@ export async function createTeslaPlayer(
   const live = opts.live === true;
   const errorMsg = live ? '直播源无响应' : '片源无响应';
 
+  // 把 URL 在创建 Player 前转成绝对地址, 同时给 probe 用
+  let absoluteUrl = url;
+  try {
+    absoluteUrl = new URL(
+      url,
+      typeof location !== 'undefined' ? location.href : undefined
+    ).href;
+  } catch {
+    absoluteUrl = url;
+  }
+
+  // 预热探测：弱网下若源已经 5xx / 超时, 直接让上层 UI 触发换源/代理
+  // libmedia 自身的 15s 超时在车机上往往演变成"假死几分钟"
+  if (!opts.isCancelled?.()) {
+    try {
+      await probeSourceReachable(absoluteUrl);
+    } catch (probeErr) {
+      throw new Error(
+        `${errorMsg}（${(probeErr as Error)?.message || '源不可达'}）`
+      );
+    }
+    if (opts.isCancelled?.()) {
+      throw new Error('播放器初始化已取消');
+    }
+  }
+
   let decodePresetId = DECODE_PRESET_HARDWARE;
   let player: any = null;
   let destroyed = false;
-  let firstFrameOk = false;
-  let fallbackTimer: ReturnType<typeof setTimeout> | null = null;
+  // 区分视频与音频首帧, 避免音频先到触发 "firstFrame" 但画面其实黑屏
+  let firstVideoOk = false;
+  let firstAudioOk = false;
+  let videoFallbackTimer: ReturnType<typeof setTimeout> | null = null;
+  let audioFallbackTimer: ReturnType<typeof setTimeout> | null = null;
+  let fallbackLevel = 0;
   // The player can be rebuilt while falling back from hardware to software
   // decoding. Keep the requested rate outside the player instance so it is
   // restored on the replacement instance as well.
@@ -162,17 +239,33 @@ export async function createTeslaPlayer(
   };
 
   const clearTimers = () => {
-    if (fallbackTimer) {
-      clearTimeout(fallbackTimer);
-      fallbackTimer = null;
+    if (videoFallbackTimer) {
+      clearTimeout(videoFallbackTimer);
+      videoFallbackTimer = null;
+    }
+    if (audioFallbackTimer) {
+      clearTimeout(audioFallbackTimer);
+      audioFallbackTimer = null;
     }
   };
 
-  const markFirstFrame = () => {
-    if (firstFrameOk) return;
-    firstFrameOk = true;
-    clearTimers();
+  const markVideoFirstFrame = () => {
+    if (firstVideoOk) return;
+    firstVideoOk = true;
+    // 视频先到时不等音频: 让前端尽快进入播放态
+    if (videoFallbackTimer) {
+      clearTimeout(videoFallbackTimer);
+      videoFallbackTimer = null;
+    }
     opts.onFirstFrame?.();
+  };
+  const markAudioFirstFrame = () => {
+    if (firstAudioOk) return;
+    firstAudioOk = true;
+    if (audioFallbackTimer) {
+      clearTimeout(audioFallbackTimer);
+      audioFallbackTimer = null;
+    }
   };
 
   const destroy = (clearContainer = true) => {
@@ -225,31 +318,33 @@ export async function createTeslaPlayer(
     };
 
     player.on('time', () => {
-      if (!firstFrameOk) restorePlaybackRate();
-      markFirstFrame();
-      if (typeof opts.onTime === 'function') {
-        let currentTimeSeconds = 0;
-        let durationSeconds = 0;
-        try {
-          currentTimeSeconds = toSeconds(player.currentTime);
-        } catch {
-          /* ignore */
+      // 首帧未出来前不向外抛时间, 避免上层误判"已开始播放"
+      if (firstVideoOk) {
+        restorePlaybackRate();
+        if (typeof opts.onTime === 'function') {
+          let currentTimeSeconds = 0;
+          let durationSeconds = 0;
+          try {
+            currentTimeSeconds = toSeconds(player.currentTime);
+          } catch {
+            /* ignore */
+          }
+          try {
+            durationSeconds = toSeconds(player.duration);
+          } catch {
+            /* ignore */
+          }
+          opts.onTime(currentTimeSeconds, durationSeconds);
         }
-        try {
-          durationSeconds = toSeconds(player.duration);
-        } catch {
-          /* ignore */
-        }
-        opts.onTime(currentTimeSeconds, durationSeconds);
       }
     });
     player.on('firstVideoRendered', () => {
       restorePlaybackRate();
-      markFirstFrame();
+      markVideoFirstFrame();
     });
     player.on('firstAudioRendered', () => {
       restorePlaybackRate();
-      markFirstFrame();
+      markAudioFirstFrame();
     });
     player.on('ended', () => {
       opts.onEnded?.();
@@ -259,15 +354,6 @@ export async function createTeslaPlayer(
       if (opts.isCancelled?.()) return;
       // 确保 URL 为绝对地址：libmedia 的 IO 在 Worker 里 fetch，相对路径会解析失败
       // （MoonTVPlus 的代理地址形如 /api/proxy-m3u8?...，需基于当前页面 origin 转成绝对 URL）
-      let absoluteUrl = url;
-      try {
-        absoluteUrl = new URL(
-          url,
-          typeof location !== 'undefined' ? location.href : undefined
-        ).href;
-      } catch {
-        absoluteUrl = url;
-      }
       player.loadSource(absoluteUrl, { isLive: live }, true);
       // Applying after loadSource covers engines that initialise their render
       // threads during source loading rather than in the constructor.
@@ -277,16 +363,29 @@ export async function createTeslaPlayer(
       return;
     }
 
-    // 首帧超时：硬解无响应则回退软解重建；软解仍无响应则报错
-    fallbackTimer = setTimeout(() => {
-      if (destroyed || firstFrameOk) return;
-      if (decodePresetId === DECODE_PRESET_HARDWARE && !fallback) {
-        opts.onStatus?.('硬解无响应，切换兼容模式…');
-        void start(true);
+    // 首帧超时：硬解无响应则回退软解重建；软解仍无响应则重新请求源 URL 重建 (走 cold retry)。
+    // 车机编码格式多, HEVC 软解也不一定出帧, 这里把第三次当作强制冷重置.
+    videoFallbackTimer = setTimeout(() => {
+      if (destroyed || firstVideoOk) return;
+      clearTimers();
+      if (fallbackLevel < MAX_DECODE_FALLBACK_LEVEL) {
+        fallbackLevel += 1;
+        if (decodePresetId === DECODE_PRESET_HARDWARE) {
+          opts.onStatus?.('硬解无响应，切换兼容模式…');
+        } else {
+          opts.onStatus?.('正在重新拉取流…');
+        }
+        void start(fallbackLevel >= 1);
       } else {
         opts.onError?.(new Error(errorMsg));
       }
-    }, FIRST_FRAME_TIMEOUT_MS);
+    }, FIRST_VIDEO_FRAME_TIMEOUT_MS);
+
+    audioFallbackTimer = setTimeout(() => {
+      if (destroyed || firstAudioOk) return;
+      // 仅音频帧未到时不再重建 player, 但给上层一个提示 (音画同步异常多源自此)
+      console.warn('[Tesla Player] 音频帧超时未渲染, 可能音画不同步');
+    }, FIRST_AUDIO_FRAME_TIMEOUT_MS);
   };
 
   await start(false);

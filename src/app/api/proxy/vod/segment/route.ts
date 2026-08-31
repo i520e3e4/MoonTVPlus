@@ -8,6 +8,76 @@ import { buildProxyStreamHeaders } from '@/lib/server/proxy-headers';
 
 export const runtime = 'nodejs';
 
+/**
+ * 带超时与重试的上游分片拉取。Cloudflare Worker 单请求 30s CPU 配额非常紧张,
+ * 车机弱网下分片往往 hang 住超过 30s, 这里主动 12s abort 并重试 1 次,
+ * 仍失败则直接向客户端抛 504, 让 HLS.js / libmedia 走分片重试或切线路。
+ */
+async function fetchSegmentWithRetry(
+  url: string,
+  options: { timeoutMs?: number; referer: string; signal?: AbortSignal } = {
+    referer: '',
+  }
+): Promise<Response> {
+  const { timeoutMs = 12_000, referer, signal: outerSignal } = options;
+  const maxAttempts = 2;
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    const controller = new AbortController();
+    const onAbort = () => controller.abort();
+    if (outerSignal) {
+      if (outerSignal.aborted) controller.abort();
+      else outerSignal.addEventListener('abort', onAbort, { once: true });
+    }
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      const response = await fetch(url, {
+        signal: controller.signal,
+        headers: {
+          'User-Agent':
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+          'Referer': referer,
+        },
+      });
+      clearTimeout(timer);
+      if (outerSignal) outerSignal.removeEventListener('abort', onAbort);
+
+      if (
+        response.ok ||
+        (response.status >= 400 && response.status < 500)
+      ) {
+        return response;
+      }
+
+      // 5xx 重试
+      console.warn(
+        `[Proxy-Segment] upstream ${new URL(url).host} returned ${response.status}, attempt ${attempt}/${maxAttempts}`
+      );
+      try {
+        await response.text();
+      } catch {
+        /* ignore */
+      }
+    } catch (error) {
+      clearTimeout(timer);
+      if (outerSignal) outerSignal.removeEventListener('abort', onAbort);
+      console.warn(
+        `[Proxy-Segment] attempt ${attempt}/${maxAttempts} failed:`,
+        (error as Error)?.message
+      );
+      if (attempt >= maxAttempts) {
+        throw error;
+      }
+    }
+
+    if (attempt < maxAttempts) {
+      await new Promise((r) => setTimeout(r, 150 * attempt));
+    }
+  }
+
+  throw new Error('segment fetch exhausted retries');
+}
+
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const url = searchParams.get('url');
@@ -51,11 +121,8 @@ export async function GET(request: Request) {
       return NextResponse.json({ error: 'Proxy request to local or invalid network is forbidden' }, { status: 403 });
     }
 
-    response = await fetch(decodedUrl, {
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        'Referer': decodedUrl,
-      },
+    response = await fetchSegmentWithRetry(decodedUrl, {
+      referer: decodedUrl,
     });
     if (!response.ok) {
       return NextResponse.json({ error: 'Failed to fetch segment' }, { status: 500 });
